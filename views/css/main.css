@@ -18,7 +18,7 @@
 @media (max-width: 575px) {
   .payment-checkout {
     background: linear-gradient(rgb(255 255 255), rgb(255 255 255 / 65%)),
-      url(../../imgs/fondo-prestashop.jpg);
+    url(../../imgs/fondo-prestashop.jpg);
     background-position: center, right 0;
     background-size: contain, contain;
     background-repeat: no-repeat, no-repeat;
@@ -37,4 +37,24 @@
   .js-payment-checkout {
     margin: 1em 0;
   }
+}
+
+.js-payment-checkout {
+  text-align: left;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  font-weight: 500;
+  cursor: pointer;
+  float: left;
+}
+
+.ltp-button {
+  text-align: left;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  font-weight: 500;
+  cursor: pointer;
+  float: left;
 }
