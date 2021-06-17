@@ -163,9 +163,7 @@ class PG_Prestashop_PluginPaymentModuleFrontController extends ModuleFrontContro
     private function getInstallmentsOptions(): array
     {
         return [
-            2  => $this->module->l('Deferred with interest (Ecuador, México)', 'payment'),
-            3  => $this->module->l('Deferred without interest (Ecuador, México)', 'payment'),
-            9  => $this->module->l('Deferred without interest and months of grace (Ecuador, México)', 'payment'),
+            1  => $this->module->l('Habilitar Cuotas', 'payment'),
         ];
     }
 }
