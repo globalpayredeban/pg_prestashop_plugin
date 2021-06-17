@@ -45,6 +45,6 @@ The Globalpay Prestashop plugin has an internal webhook in order to keep updated
 7. We need to configure the **Key**, this is a unique key. You can enter it manually or click on the Generate button to generate a random key for the web service.
 8. We also configure the **Key Description**, you can provide the description regarding the key for better understanding.
 9. We will set the **Status** on Enable to provide a grant to access the data using the key.
-10. Finally, we need to configure the **Permission** field to provide the permission to access the data using the certain key. Here we need to search the resourde called **paymentezwebhook** and select the **Add (POST)** checkbox.
+10. Finally, we need to configure the **Permission** field to provide the permission to access the data using the certain key. Here we need to search the resourde called **globalpaywebhook** and select the **Add (POST)** checkbox.
 11. The webhook its located on **https://{mystoreurl}/api/globalpaywebhook?ws_key=KEY_GENERATED_ON_STEP_6**.
 12. You need to give this URL to your Globalpay agent.
