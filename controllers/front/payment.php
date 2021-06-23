@@ -39,8 +39,10 @@ class PG_Prestashop_PluginPaymentModuleFrontController extends ModuleFrontContro
         $environment       = $this->mapEnvironment(Configuration::get('environment'));
 
         $this->context->smarty->assign([
-            'app_code'             => Configuration::get('app_code_client'),
-            'app_key'              => Configuration::get('app_key_client'),
+            'app_code_client'      => Configuration::get('app_code_client'),
+            'app_key_client'       => Configuration::get('app_key_client'),
+            'app_code_server'      => Configuration::get('app_code_server'),
+            'app_key_server'       => Configuration::get('app_key_server'),
             'checkout_language'    => $checkout_language,
             'environment'          => $environment,
             'ltp_url'              => $this->mapLinkToPayUrl($environment),

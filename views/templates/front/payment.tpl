@@ -88,9 +88,9 @@
     <script id="payment_ltp" type="text/javascript">
         function generateAuthToken() {
             let timestamp = (new Date()).getTime();
-            let key_time = "{$app_key}" + timestamp;
+            let key_time = "{$app_key_server}" + timestamp;
             let uniq_token = CryptoJS.SHA256(key_time);
-            let str_union = "{$app_code}"+";"+timestamp+";"+uniq_token
+            let str_union = "{$app_code_server}"+";"+timestamp+";"+uniq_token
             return btoa(str_union);
         }
 
@@ -168,8 +168,8 @@
     <script id="payment_checkout" type="text/javascript">
         jQuery(document).ready(function ($) {
             let paymentCheckout = new PaymentCheckout.modal({
-                client_app_code: "{$app_code}",
-                client_app_key: "{$app_key}",
+                client_app_code: "{$app_code_client}",
+                client_app_key: "{$app_key_client}",
                 locale: "{$checkout_language}",
                 env_mode: "{$environment}",
                 onOpen: function () {
@@ -190,6 +190,8 @@
 
             let btnOpenCheckout = $('.js-payment-checkout');
 
+            let order_installments_type = document.getElementById('installments_type') ? document.getElementById('installments_type').value : -1;
+
             btnOpenCheckout.each(function () {
                     $(this).on('click', function () {
                         paymentCheckout.open({
@@ -199,7 +201,7 @@
                             order_amount: Number("{$order_amount}"),
                             order_vat: Number("{$order_vat}"),
                             order_reference: "{$order_reference}",
-                            order_installments_type: Number(document.getElementById('installments_type').value),
+                            order_installments_type: Number(order_installments_type),
                         });
                     })
                 }
