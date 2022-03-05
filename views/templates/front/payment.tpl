@@ -2,7 +2,7 @@
 {block name="content"}
     <link rel="stylesheet" href="{$urls.base_url}/modules/pg_prestashop_plugin/views/css/main.css">
     <script src="https://cdn.globalpay.com.co/ccapi/sdk/payment_checkout_stable.min.js"></script>
-    <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js" type="text/javascript"></script>
+    <script src="https://code.jquery.com/jquery-1.7.1.min.js" type="text/javascript"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/3.1.9-1/crypto-js.js"></script></head>
 
     <div class="row">
@@ -55,7 +55,7 @@
         <div class="col-sm-7 col-lg-9">
         </div>
         <div class="col-sm-5 col-lg-3">
-            {if $enable_installments}
+            {if $enable_installments && $currency!=="COP"}
                 <select class="btn btn-outline-primary dropdown-toggle btn-block" name="installments_type" id="installments_type">
                     <option selected disabled>{l s='Installments Type:' mod='pg_prestashop_plugin'}</option>
                     <option value=-1>{l s='Without Installments' mod='pg_prestashop_plugin'}</option>
@@ -189,8 +189,11 @@
             });
 
             let btnOpenCheckout = $('.js-payment-checkout');
+            let type_installments = -1;
+            if ("{$currency}" === "COP" && {$enable_installments})
+                type_installments = 0;
 
-            let order_installments_type = document.getElementById('installments_type') ? document.getElementById('installments_type').value : -1;
+            let order_installments_type = document.getElementById('installments_type') ? document.getElementById('installments_type').value : type_installments;
 
             btnOpenCheckout.each(function () {
                     $(this).on('click', function () {
@@ -202,6 +205,13 @@
                             order_vat: Number("{$order_vat}"),
                             order_reference: "{$order_reference}",
                             order_installments_type: Number(order_installments_type),
+                            billing_address: {
+                                street: "{$billing_address.street}",
+                                city: "{$billing_address.city}",
+                                country: "{$billing_address.country}",
+                                state:  "{$billing_address.state}",
+                                zip: "{$billing_address.zip}"
+                            }
                         });
                     })
                 }

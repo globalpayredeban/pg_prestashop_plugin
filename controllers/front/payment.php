@@ -1,4 +1,5 @@
 <?php
+include_once('utils.php');
 class PG_Prestashop_PluginPaymentModuleFrontController extends ModuleFrontController
 {
     public function init()
@@ -25,6 +26,11 @@ class PG_Prestashop_PluginPaymentModuleFrontController extends ModuleFrontContro
 
         $cart = $this->context->cart;
         $customer = $this->context->customer;
+        $billing_address = new Address($cart->id_address_invoice);
+        $address_delivery_country = new Country($billing_address->id_country);
+        $iso_code = PG_Prestashop_Utils::get_convert_country($address_delivery_country->iso_code);
+        $address_delivery_state = new State($billing_address->id_state);
+        $iso_code_state = PG_Prestashop_Utils::validate_state($address_delivery_state->iso_code);
         $total = (float)$cart->getOrderTotal();
         $products = $cart->getProducts();
         $order_products = [];
@@ -64,6 +70,13 @@ class PG_Prestashop_PluginPaymentModuleFrontController extends ModuleFrontContro
             'installments_options' => $this->getInstallmentsOptions(),
             'enable_card'          => Configuration::get('enable_card'),
             'enable_ltp'           => Configuration::get('enable_ltp'),
+            'billing_address'  => [
+                'street'               => $billing_address->address1,
+                'city'                 => $billing_address->city,
+                'country'              => $iso_code,
+                'state'                => $iso_code_state,
+                'zip'                  => $billing_address->postcode
+            ]
         ]);
 
         $this->setTemplate('module:pg_prestashop_plugin/views/templates/front/payment.tpl');
