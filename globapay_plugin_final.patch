@@ -1,0 +1,2687 @@
+diff --git a/README.md b/README.md
+index 9282532..cafbb3a 100644
+--- a/README.md
++++ b/README.md
+@@ -1,5 +1,21 @@
+ # Globalpay Payment Gateway Plugin for Prestashop
+ 
++## Instalación
++
++> **Importante para instalaciones junto a otros plugins Globalpay:**  
++> Al descargar el ZIP de este repositorio, renombra la carpeta a un nombre soportado distinto de `pg_prestashop_plugin` para evitar conflictos.
++
++### Nombres de carpeta soportados actualmente
++
++- `pg_prestashop_plugin`
++- `globalpay_payment`
++- `pg_globalpay_plugin`
++
++1. Descarga el ZIP del repositorio
++2. Descomprime y renombra la carpeta (recomendado): `pg_prestashop_plugin` → `pg_globalpay_plugin`
++3. Sube la carpeta a `/modules/` en tu servidor PrestaShop
++4. Ve a Back Office → Módulos → Busca "Globalpay" → Instalar
++
+ ## 1. Prerequisites
+ ### 1.1. XAMPP, LAMPP, MAMPP, Bitnami or any PHP development environment
+ - XAMPP: https://www.apachefriends.org/download.html
+@@ -9,7 +25,8 @@
+ ### 1.2. Prestashop
+ Warning, if you already install the Bitnami option this step can be omitted.
+ 
+-Prestashop is an e-commerce solution, it's developed on PHP. Now the last stable version is the 1.7.X.
++Prestashop is an e-commerce solution, it's developed on PHP.
++This plugin is compatible with **PrestaShop 8.0.0 and newer** (8.x and 9.x).
+ - Download: https://www.prestashop.com/en/download
+ - Install Guide: https://www.prestashop.com/en/blog/how-to-install-prestashop
+ 
+@@ -18,22 +35,23 @@ You can download the current stable release from: https://github.com/globalpayre
+ 
+ ## 3. Plugin Installation on Prestashop
+ 1. First, we need to download the current stable release of Globalpay Prestashop plugin from the previous step.
+-2. We need to unzip the file to get the pg_prestashop_plugin-2.0.0 folder.
+-3. Now you rename the folder from **pg_prestashop_plugin-2.0.0** to **pg_prestashop_plugin**.
+-4. Compress on zip format the folder to get a file called **pg_prestashop_plugin.zip**.
++2. We need to unzip the file and locate the plugin folder.
++3. Now you rename the folder to **globalpay_payment**.
++4. Compress on zip format the folder to get a file called **globalpay_payment.zip**.
+ 5. We need to log in to our Prestashop admin page.
+ 6. Now we click on **Improve -> Modules -> Module Manager**
+ 7. In the Module manager we click on the **Upload a mudule** button
+ 8. We click on **select file**, or we can **Drop** the Globalpay Prestashop plugin folder on .zip or .rar format.
+ 9. We will wait until the **Installing module** screen changes to **Module installed!**.
+ 10. Now we can click on **Configure** button displayed on the screen or in the **Configure** button displayed on the **Payment** section on the **Module manager**.
+-11. Inside the **Payment Gateway Configurations** we need to configure or CLIENT/SERVER credentials provided by **Globalpay**, we can select the **Checkout Language** that will be displayed to the user, also we need to select an **Environment**, by default STG(Staging) is selected.
++11. Inside the **Payment Gateway Configurations** we need to configure the credentials provided by **Globalpay**. We can also select the **Checkout Language** and **Environment** (STG by default).
+ 12. Congrats! Now we have the Globalpay Prestashop plugin correctly configured.
+ 
+ ## 4. Considerations and Comments
+ ### 4.1. Refunds
+-- The **2.0.0** plugin version does not support the **Partial Refunds** by Prestashop. However, the plugin supports **Standard Refunds** by Prestashop.
+-- The **Standard Refund** can be interpreted as a partial refund on Globalpay side, a success refund operation depends on the configured payment network accepting partial refunds.
++- The plugin supports **Partial Refunds** and **Standard Refunds** for **Card payments**.
++- **LinkToPay** orders are not refundable from the plugin back-office flow.
++- **Standard Refund** uses the full paid order amount when **Credit slip** is selected in PrestaShop.
+ ### 4.2. Webhook
+ The Globalpay Prestashop plugin has an internal webhook in order to keep updated the transactions statuses between Prestashop and Globalpay. You need to follow the next steps to configure the webhook:
+ 1. Login into the Prestashop Back-office.
+@@ -41,10 +59,13 @@ The Globalpay Prestashop plugin has an internal webhook in order to keep updated
+ 3. It will redirect to the Web Services page having the listing of available Webservices, and the configuration form to configure the service.
+ 4. We need to enable the field called **Enable Prestashop webservice**.
+ 5. Click on **Save** button.
+-6. Click on the **Add new web service key** button to add new web service key to access only to the certain resources of the Prestashop store.
+-7. We need to configure the **Key**, this is a unique key. You can enter it manually or click on the Generate button to generate a random key for the web service.
+-8. We also configure the **Key Description**, you can provide the description regarding the key for better understanding.
+-9. We will set the **Status** on Enable to provide a grant to access the data using the key.
+-10. Finally, we need to configure the **Permission** field to provide the permission to access the data using the certain key. Here we need to search the resourde called **globalpaywebhook** and select the **Add (POST)** checkbox.
+-11. The webhook its located on **https://{mystoreurl}/api/globalpaywebhook?ws_key=KEY_GENERATED_ON_STEP_6**.
+-12. You need to give this URL to your Globalpay agent.
++6. The module creates the **globalpaywebhook** webservice key automatically during installation.
++7. Edit that key in **Advanced Parameters -> Web Services** and manually enable **POST** permission for **globalpaywebhook**.
++8. You can review/copy the generated key in that same screen.
++9. The webhook is located on **https://{mystoreurl}/api/globalpaywebhook?ws_key=THE_KEY_CREATED_BY_THE_MODULE**.
++10. You need to give this URL to your Globalpay agent.
++
++## 5. Security and flow updates
++- Card and LinkToPay initialization are done server-side to avoid exposing sensitive server keys in the browser.
++- Front requests from checkout now use a security signature (`pg_sig`) validated on backend controllers.
++- Webhook payload validation was hardened (required fields, application code check, stoken check, and amount consistency check).
+diff --git a/classes/WebserviceSpecificManagementGlobalpayWebhook.php b/classes/WebserviceSpecificManagementGlobalpayWebhook.php
+index cdf7f77..810ffe2 100644
+--- a/classes/WebserviceSpecificManagementGlobalpayWebhook.php
++++ b/classes/WebserviceSpecificManagementGlobalpayWebhook.php
+@@ -6,6 +6,7 @@ class WebserviceSpecificManagementGlobalpayWebhook implements WebserviceSpecific
+     /** @var WebserviceOutputBuilder */
+     protected $objOutput;
+     protected $output;
++    protected $urlSegment;
+ 
+     /** @var WebserviceRequest */
+     protected $wsObject;
+@@ -66,20 +67,38 @@ class WebserviceSpecificManagementGlobalpayWebhook implements WebserviceSpecific
+     {
+         $this->wsObject->setOutputEnabled(true);
+ 
+-        $requestBody      = file_get_contents('php://input');
+-        $requestBodyJs    = json_decode($requestBody, true);
+-        $transaction_id   = $requestBodyJs["transaction"]['id'];
+-        $status_detail    = $requestBodyJs["transaction"]['status_detail'] ?? 999;
+-        $dev_reference    = $requestBodyJs["transaction"]['dev_reference'];
+-        $pg_stoken        = $requestBodyJs["transaction"]['stoken'];
+-        $application_code = $requestBodyJs["transaction"]['application_code'];
++        $requestBody   = file_get_contents('php://input');
++        $requestBodyJs = json_decode($requestBody, true);
++        $transaction   = $requestBodyJs['transaction'] ?? null;
++
++        if (!is_array($transaction)) {
++            throw new WebserviceException('Invalid payload', [1, 400]);
++        }
++
++        $transaction_id   = $transaction['id'] ?? null;
++        $status_detail    = $transaction['status_detail'] ?? 999;
++        $dev_reference    = $transaction['dev_reference'] ?? null;
++        $pg_stoken        = $transaction['stoken'] ?? null;
++        $application_code = $transaction['application_code'] ?? null;
++
++        if (!$transaction_id || !$dev_reference || !$pg_stoken || !$application_code) {
++            throw new WebserviceException('Missing required fields', [1, 400]);
++        }
+ 
+         $orderId = Order::getIdByCartId($dev_reference);
+-        if (!$orderId)
+-        {
++        if (!$orderId) {
+             throw new WebserviceException('Order not found', [1, 400]);
+         }
++
+         $order = new Order($orderId);
++
++        if ((int) $status_detail === 3) {
++            $transaction_amount = (float) ($transaction['amount'] ?? 0);
++            if ($transaction_amount <= 0 || abs($transaction_amount - (float) $order->total_paid) > 0.01) {
++                throw new WebserviceException('Amount mismatch', [1, 400]);
++            }
++        }
++
+         $this->update_order_status($application_code, $order, $transaction_id, $pg_stoken, $status_detail);
+     }
+ 
+@@ -89,13 +108,17 @@ class WebserviceSpecificManagementGlobalpayWebhook implements WebserviceSpecific
+      */
+     private function update_order_status($application_code, $order, $transaction_id, $pg_stoken, $status_detail)
+     {
+-        $codes_keys = [
+-            Configuration::get('app_code_client') => Configuration::get('app_key_client'),
+-            Configuration::get('app_code_server') => Configuration::get('app_key_server'),
+-        ];
+-        // TODO: Meter todo esto en una funcion validateStoken()
+-        $app_code = $application_code;
+-        $app_key = $codes_keys[$app_code];
++        $app_code = (string) Configuration::get('app_code_server');
++        $app_key = (string) Configuration::get('app_key_server');
++
++        if ($app_code === '' || $app_key === '') {
++            throw new WebserviceException('Webhook credentials not configured', [1, 500]);
++        }
++
++        if ($application_code !== $app_code) {
++            throw new WebserviceException('Application code invalid', [1, 401]);
++        }
++
+         $user_id = $order->id_customer;
+         $for_md5 = "{$transaction_id}_{$app_code}_{$user_id}_{$app_key}";
+         $stoken = md5($for_md5);
+@@ -114,7 +137,7 @@ class WebserviceSpecificManagementGlobalpayWebhook implements WebserviceSpecific
+         $collection = OrderPayment::getByOrderReference($order->reference);
+         foreach ($collection as $order_payment)
+         {
+-            if ($order_payment->payment_method == FLAVOR.' Prestashop Plugin' or !$order_payment->payment_method) {
++            if ($order_payment->payment_method == GP_FLAVOR.' Prestashop Plugin' or !$order_payment->payment_method) {
+                 $order_payment->transaction_id = $transaction_id;
+                 $order_payment->save();
+             }
+@@ -125,11 +148,17 @@ class WebserviceSpecificManagementGlobalpayWebhook implements WebserviceSpecific
+     private function map_status($status_detail): int
+     {
+         $pg_status_ps = [
+-            0 => 10, // “Awaiting”
+-            3 => 2, // “Payment accepted”
+-            7 => 7, // “Refunded”
+-            8 => 13, // “Awaiting Cash On Delivery validation” (chargeback)
++            0 => $this->getOrderStateId('PS_OS_PREPARATION', 10), // Awaiting / pending
++            3 => $this->getOrderStateId('PS_OS_PAYMENT', 2), // Payment accepted
++            7 => $this->getOrderStateId('PS_OS_REFUND', 7), // Refunded
++            8 => $this->getOrderStateId('PS_OS_ERROR', 8), // Chargeback / error
+         ];
+-        return $pg_status_ps[$status_detail] ?? 8; // 8 => "Payment Error"
++        return $pg_status_ps[$status_detail] ?? $this->getOrderStateId('PS_OS_ERROR', 8);
++    }
++
++    private function getOrderStateId(string $configKey, int $fallback): int
++    {
++        $stateId = (int) Configuration::get($configKey);
++        return $stateId > 0 ? $stateId : $fallback;
+     }
+ }
+\ No newline at end of file
+diff --git a/controllers/front/payment.php b/controllers/front/payment.php
+index f6a9d7b..cbebda5 100644
+--- a/controllers/front/payment.php
++++ b/controllers/front/payment.php
+@@ -1,24 +1,22 @@
+ <?php
+ include_once('utils.php');
+-class PG_Prestashop_PluginPaymentModuleFrontController extends ModuleFrontController
++
++class Globalpay_PaymentPaymentModuleFrontController extends ModuleFrontController
+ {
+     public function init()
+     {
+         parent::init();
+-        if(!$this->module->active)
+-        {
++        if (!$this->module->active) {
+             Tools::redirect($this->context->link->getPageLink('order'));
+         }
+         $customer = $this->context->customer;
+-        if(!Validate::isLoadedObject($customer))
+-        {
++        if (!Validate::isLoadedObject($customer)) {
+             Tools::redirect($this->context->link->getPageLink('order'));
+         }
+     }
+ 
+     /**
+      * @throws PrestaShopException
+-     * @throws Exception
+      */
+     public function initContent()
+     {
+@@ -26,130 +24,300 @@ class PG_Prestashop_PluginPaymentModuleFrontController extends ModuleFrontContro
+ 
+         $cart = $this->context->cart;
+         $customer = $this->context->customer;
+-        $billing_address = new Address($cart->id_address_invoice);
+-        $address_delivery_country = new Country($billing_address->id_country);
+-        $iso_code = PG_Prestashop_Utils::get_convert_country($address_delivery_country->iso_code);
+-        $address_delivery_state = new State($billing_address->id_state);
+-        $iso_code_state = PG_Prestashop_Utils::validate_state($address_delivery_state->iso_code);
+-        $total = (float)$cart->getOrderTotal();
+-        $products = $cart->getProducts();
+-        $order_products = [];
+-        foreach ($products as $product)
+-            $order_products[] = $product['cart_quantity']." X ".$product['name'];
+-        $order_description = implode(", ", $order_products);
+-        if (strlen($order_description) > 240)
+-        {
+-            $order_description = substr($order_description,0,240);
+-        }
+-        $checkout_language = $this->mapCheckoutLanguage(Configuration::get('checkout_language'));
+-        $environment       = $this->mapEnvironment(Configuration::get('environment'));
++
++        $checkout_language = $this->mapCheckoutLanguage((string) Configuration::get('checkout_language'));
++        $environment = $this->mapEnvironment((string) Configuration::get('environment'));
++        $pg_sig = Globalpay_PaymentUtils::buildFrontSecuritySignature($cart, $customer);
+ 
+         $this->context->smarty->assign([
+-            'app_code_client'      => Configuration::get('app_code_client'),
+-            'app_key_client'       => Configuration::get('app_key_client'),
+-            'app_code_server'      => Configuration::get('app_code_server'),
+-            'app_key_server'       => Configuration::get('app_key_server'),
+-            'checkout_language'    => $checkout_language,
+-            'environment'          => $environment,
+-            'ltp_url'              => $this->mapLinkToPayUrl($environment),
+-            'user_id'              => $cart->id_customer,
+-            'user_email'           => $customer->email,
+-            'order_description'    => $order_description,
+-            'order_amount'         => $total,
+-            'order_vat'            => 0.0,
+-            'order_reference'      => $cart->id,
+-            'products'             => $products,
+-            'user_firstname'       => $customer->firstname,
+-            'user_lastname'        => $customer->lastname,
+-            'currency'             => Currency::getIsoCodeById($cart->id_currency),
+-            'expiration_days'      => Configuration::get('ltp_expiration_days'),
+-            'order_url'            => Context::getContext()->shop->getBaseURL(true).'index.php?controller=order-confirmation&id_cart='.(int)$cart->id.'&id_module='.(int)$this->module->id.'&id_order='.$this->module->currentOrder.'&key='.$customer->secure_key,
+-            'ltp_button_text'      => Configuration::get('ltp_button_text'),
+-            'card_button_text'     => Configuration::get('card_button_text'),
+-            'enable_installments'  => Configuration::get('enable_installments'),
+-            'installments_options' => $this->getInstallmentsOptions(),
+-            'enable_card'          => Configuration::get('enable_card'),
+-            'enable_ltp'           => Configuration::get('enable_ltp'),
+-            'billing_address'  => [
+-                'street'               => $billing_address->address1,
+-                'city'                 => $billing_address->city,
+-                'country'              => $iso_code,
+-                'state'                => $iso_code_state,
+-                'zip'                  => $billing_address->postcode
+-            ]
++            'checkout_language' => $checkout_language,
++            'environment' => $environment,
++            'card_init_url' => $this->context->link->getModuleLink($this->module->name, 'payment', [
++                'action' => 'initCardReference',
++                'pg_sig' => $pg_sig,
++            ], true),
++            'ltp_init_url' => $this->context->link->getModuleLink($this->module->name, 'ltp', [
++                'pg_sig' => $pg_sig,
++            ], true),
++            'pg_sig' => $pg_sig,
++            'products' => $cart->getProducts(),
++            'card_button_text' => Configuration::get('card_button_text'),
++            'ltp_button_text' => Configuration::get('ltp_button_text'),
++            'enable_card' => Configuration::get('enable_card'),
++            'enable_ltp' => Configuration::get('enable_ltp'),
+         ]);
+ 
+-        $this->setTemplate('module:pg_prestashop_plugin/views/templates/front/payment.tpl');
++        $this->setTemplate('module:'.$this->module->name.'/views/templates/front/payment.tpl');
+     }
+ 
+     public function setMedia()
+     {
+         parent::setMedia();
++        $this->registerJavascript(
++            'jquery-3-6-0',
++            'https://code.jquery.com/jquery-3.6.0.min.js',
++            ['server' => 'remote', 'position' => 'head', 'priority' => 5]
++        );
+     }
+ 
++    /**
++     * @throws PrestaShopException
++     */
+     public function postProcess()
+     {
+-        if (!empty($_POST))
+-        {
+-            $cart           = $this->context->cart;
+-            $customer       = new Customer($cart->id_customer);
+-
+-            $total          = (float)Tools::getValue('amount');
+-            $payment_id     = Tools::getValue('id');
+-            $status         = Tools::getValue('status');
+-            $payment_method = Tools::getValue('payment_method');
+-
+-            if ($payment_method == 'LinkToPay')
+-            {
+-                $this->module->validateOrder($cart->id, Configuration::get('PS_OS_BANKWIRE'), $total, $this->module->displayName, null, array(), $this->context->currency->id, false, $customer->secure_key);
+-
+-                $this->assignPaymentId($payment_id);
+-
+-                $payment_url    = Tools::getValue('payment_url');
+-                $this->context->smarty->assign([
+-                    'pg_status'      => 'pending',
+-                    'payment_id'     => Tools::getValue('id'),
+-                    'module_gtw'     => $this->module->displayName,
+-                    'payment_method' => $payment_method,
+-                    'payment_url'    => $payment_url
+-                ]);
+-                Tools::redirect($payment_url);
++        $action = Tools::getValue('action');
++        if ($action === 'initCardReference') {
++            $cart = $this->context->cart;
++            $customer = $this->context->customer;
++            if (
++                !Validate::isLoadedObject($cart)
++                || !Validate::isLoadedObject($customer)
++                || !$this->isValidFrontSignature($cart, $customer)
++            ) {
++                $this->returnJson(['success' => false, 'error' => 'Invalid request signature']);
+             }
++            $this->initCardReference();
++        }
++
++        if (empty($_POST)) {
++            return;
++        }
+ 
+-            if ($status == 'success')
+-            {
+-                $this->module->validateOrder($cart->id, Configuration::get('PS_OS_PAYMENT'), $total, $this->module->displayName, null, array(), $this->context->currency->id, false, $customer->secure_key);
++        try {
++            $cart = $this->context->cart;
++            if (!Validate::isLoadedObject($cart)) {
++                throw new Exception('Invalid cart');
+             }
+-            elseif ($status == 'pending')
+-            {
+-                $this->module->validateOrder($cart->id, Configuration::get('PS_OS_PREPARATION'), $total, $this->module->displayName, null, array(), $this->context->currency->id, false, $customer->secure_key);
++
++            $customer = new Customer($cart->id_customer);
++            if (!Validate::isLoadedObject($customer)) {
++                throw new Exception('Invalid customer');
++            }
++
++            if (!$this->isValidFrontSignature($cart, $customer)) {
++                throw new Exception('Invalid request signature');
++            }
++
++            $gateway_amount = (float) Tools::getValue('amount');
++            $amountTaxData = Globalpay_PaymentUtils::getCartAmountAndVat($cart);
++            $cart_total = (float) $amountTaxData['total'];
++            $payment_id = (string) Tools::getValue('id');
++            $status_detail = (int) Tools::getValue('status_detail');
++
++            if ($payment_id === '') {
++                throw new Exception('Missing payment id');
+             }
+-            else
+-            {
+-                $this->module->validateOrder($cart->id, Configuration::get('PS_OS_ERROR'), $total, $this->module->displayName, null, array(), $this->context->currency->id, false, $customer->secure_key);
++            if ($gateway_amount <= 0) {
++                throw new Exception('Missing payment amount');
++            }
++            if (abs($gateway_amount - $cart_total) > 0.01) {
++                throw new Exception('Payment amount mismatch');
+             }
+ 
++            if ($status_detail !== 3) {
++                throw new Exception('Payment not approved');
++            }
++
++            $this->module->validateOrder(
++                $cart->id,
++                Configuration::get('PS_OS_PREPARATION'),
++                $gateway_amount,
++                $this->module->displayName,
++                null,
++                [],
++                $this->context->currency->id,
++                false,
++                $customer->secure_key
++            );
++
++            if (!$this->module->currentOrder) {
++                throw new Exception('Order creation failed');
++            }
++
++            $this->context->cookie->pg_payment_approved = '1';
++
+             $this->assignPaymentId($payment_id);
++            Globalpay_PaymentUtils::markOrderPaymentFlow(new Order((int) $this->module->currentOrder), 'card');
++
++            $confirmUrl = 'index.php?controller=order-confirmation'
++                . '&id_cart=' . (int) $cart->id
++                . '&id_module=' . (int) $this->module->id
++                . '&id_order=' . (int) $this->module->currentOrder
++                . '&key=' . $customer->secure_key;
++
++            Tools::redirect($confirmUrl);
++        } catch (Exception $e) {
++            PrestaShopLogger::addLog('Globalpay payment postProcess error: ' . $e->getMessage(), 3);
++            $this->errors[] = $this->module->l('An error occurred while processing your payment.', 'payment');
++            $this->redirectWithNotifications($this->context->link->getPageLink('order'));
++        }
++    }
++
++    private function initCardReference()
++    {
++        try {
++            $cart = $this->context->cart;
++            if (!Validate::isLoadedObject($cart)) {
++                $this->returnJson(['success' => false, 'error' => 'Invalid cart']);
++            }
++
++            $customer = $this->context->customer;
++            if (!Validate::isLoadedObject($customer)) {
++                $this->returnJson(['success' => false, 'error' => 'Not authenticated']);
++            }
++
++            $billing_address = new Address($cart->id_address_invoice);
++            $address_delivery_country = new Country($billing_address->id_country);
++            $iso_code = Globalpay_PaymentUtils::get_convert_country($address_delivery_country->iso_code);
++            $address_delivery_state = new State($billing_address->id_state);
++            $iso_code_state = Globalpay_PaymentUtils::validate_state($address_delivery_state->iso_code);
++
++            $amountTaxData = Globalpay_PaymentUtils::getCartAmountAndVat($cart);
++            $total = (float) $amountTaxData['total'];
++            $vat = (float) $amountTaxData['vat'];
++            $products = $cart->getProducts();
+ 
+-            $this->context->smarty->assign([
+-                'pg_status'      => $status,
+-                'payment_id'     => $payment_id,
+-                'module_gtw'     => $this->module->displayName,
+-                'payment_method' => $payment_method
+-            ]);
+-            Tools::redirect('index.php?controller=order-confirmation&id_cart='.(int)$cart->id.'&id_module='.(int)$this->module->id.'&id_order='.$this->module->currentOrder.'&key='.$customer->secure_key);
++            $order_products = [];
++            foreach ($products as $product) {
++                $order_products[] = $product['cart_quantity'] . ' X ' . $product['name'];
++            }
++            $order_description = implode(', ', $order_products);
++            if (strlen($order_description) > 240) {
++                $order_description = substr($order_description, 0, 240);
++            }
++
++            $checkout_language = $this->mapCheckoutLanguage((string) Configuration::get('checkout_language'));
++            $environment = $this->mapEnvironment((string) Configuration::get('environment'));
++            $currency = Currency::getIsoCodeById($cart->id_currency);
++
++            $billing = [
++                'street' => $billing_address->address1,
++                'city' => $billing_address->city,
++                'country' => $iso_code,
++                'state' => $iso_code_state,
++                'zip' => $billing_address->postcode,
++            ];
++
++            $reference = $this->callInitReference(
++                $environment,
++                (string) $cart->id_customer,
++                $customer->email,
++                $total,
++                $order_description,
++                (string) $cart->id,
++                $vat,
++                $currency,
++                $checkout_language,
++                $billing
++            );
++
++            if (empty($reference)) {
++                $this->returnJson(['success' => false, 'error' => 'Failed to get reference from gateway']);
++            }
++
++            $this->returnJson(['success' => true, 'reference' => $reference]);
++        } catch (Exception $e) {
++            PrestaShopLogger::addLog('Globalpay initCardReference error: ' . $e->getMessage(), 3);
++            $this->returnJson(['success' => false, 'error' => 'An error occurred']);
+         }
+     }
+ 
+-    private function assignPaymentId($payment_id) {
+-        $order      = new Order($this->module->currentOrder);
++    private function returnJson(array $data): void
++    {
++        header('Content-Type: application/json');
++        echo json_encode($data);
++        exit;
++    }
++
++    private function callInitReference(
++        string $environment,
++        string $user_id,
++        string $user_email,
++        float $amount,
++        string $description,
++        string $dev_reference,
++        float $vat,
++        string $currency,
++        string $locale,
++        array $billing_address
++    ): string {
++        $app_code_server = Configuration::get('app_code_server');
++        $app_key_server = Configuration::get('app_key_server');
++
++        $timestamp = (string) time();
++        $uniq_token_hash = hash('sha256', $app_key_server . $timestamp);
++        $auth_token = base64_encode($app_code_server . ';' . $timestamp . ';' . $uniq_token_hash);
++
++        $base_url = ($environment === 'stg')
++            ? 'https://ccapi-stg.' . GP_FLAVOR_DOMAIN
++            : 'https://ccapi.' . GP_FLAVOR_DOMAIN;
++
++        $order_data = [
++            'dev_reference' => $dev_reference,
++            'description' => $description,
++            'amount' => $amount,
++            'currency' => $currency,
++            'vat' => 0,
++        ];
++
++        if ($vat > 0) {
++            $taxable_amount = round($amount - $vat, 2);
++            $order_data['vat'] = $vat;
++            $order_data['taxable_amount'] = $taxable_amount;
++            $order_data['tax_percentage'] = ($taxable_amount > 0)
++                ? round(($vat / $taxable_amount) * 100, 2)
++                : 0.0;
++        }
++
++        $installments_type = (int) Configuration::get('installments_type');
++        if ($installments_type !== -1) {
++            $order_data['installments_type'] = $installments_type;
++        }
++
++        $payload = json_encode([
++            'locale' => $locale,
++            'user' => ['id' => $user_id, 'email' => $user_email],
++            'order' => $order_data,
++            'billing_address' => $billing_address,
++        ]);
++
++        $ch = curl_init($base_url . '/v2/transaction/init_reference/');
++        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
++        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
++        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
++        curl_setopt($ch, CURLOPT_POST, true);
++        curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
++        curl_setopt($ch, CURLOPT_HTTPHEADER, [
++            'Content-Type: application/json',
++            'Auth-Token: ' . $auth_token,
++        ]);
++        $response = curl_exec($ch);
++        $curl_error = curl_error($ch);
++        $http_code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
++        curl_close($ch);
++
++        if ($response === false || $curl_error !== '') {
++            PrestaShopLogger::addLog('Globalpay init_reference cURL error: ' . $curl_error, 3);
++            return '';
++        }
++
++        $data = json_decode($response, true);
++        if (!is_array($data) || empty($data['reference'])) {
++            PrestaShopLogger::addLog(
++                'Globalpay init_reference failed. HTTP ' . $http_code . ' Response: ' . $response,
++                3
++            );
++        }
++        return $data['reference'] ?? '';
++    }
++
++    private function assignPaymentId(string $payment_id): void
++    {
++        $order = new Order($this->module->currentOrder);
+         $collection = OrderPayment::getByOrderReference($order->reference);
+-        if (count($collection) > 0)
+-        {
+-            foreach ($collection as $order_payment)
+-            {
+-                if ($order_payment->payment_method == FLAVOR . ' Prestashop Plugin')
+-                {
++        if (count($collection) > 0) {
++            foreach ($collection as $order_payment) {
++                if ($order_payment->payment_method == GP_FLAVOR . ' Prestashop Plugin') {
+                     $order_payment->transaction_id = $payment_id;
+                     $order_payment->update();
+                 }
+@@ -157,28 +325,23 @@ class PG_Prestashop_PluginPaymentModuleFrontController extends ModuleFrontContro
+         }
+     }
+ 
+-    private function mapCheckoutLanguage($checkout_language): string
++    private function mapCheckoutLanguage(string $checkout_language): string
+     {
+-        return  [1 => 'en', 2 => 'es', 3 => 'pt',][$checkout_language];
++        return [1 => 'en', 2 => 'es', 3 => 'pt'][$checkout_language] ?? 'en';
+     }
+ 
+-    private function mapEnvironment($environment): string
++    private function mapEnvironment(string $environment): string
+     {
+-        return [1 => 'stg', 2 => 'prod',][$environment];
++        return [1 => 'stg', 2 => 'prod'][$environment] ?? 'stg';
+     }
+ 
+-    private function mapLinkToPayUrl($environment): string
++    private function isValidFrontSignature(Cart $cart, Customer $customer): bool
+     {
+-        return [
+-            'stg' => 'https://noccapi-stg.'.FLAVOR_DOMAIN.'/linktopay/init_order/',
+-            'prod' => 'https://noccapi.'.FLAVOR_DOMAIN.'/linktopay/init_order/'
+-        ][$environment];
++        $signature = (string) Tools::getValue('pg_sig');
++        return Globalpay_PaymentUtils::isValidFrontSecuritySignature($signature, $cart, $customer);
+     }
++}
+ 
+-    private function getInstallmentsOptions(): array
+-    {
+-        return [
+-            1  => $this->module->l('Habilitar Cuotas', 'payment'),
+-        ];
+-    }
+-}
+\ No newline at end of file
++if (!class_exists('PG_Prestashop_PluginPaymentModuleFrontController', false)) {
++    class_alias('Globalpay_PaymentPaymentModuleFrontController', 'PG_Prestashop_PluginPaymentModuleFrontController');
++}
+diff --git a/controllers/front/utils.php b/controllers/front/utils.php
+index 39e58e0..c12f9cd 100644
+--- a/controllers/front/utils.php
++++ b/controllers/front/utils.php
+@@ -1,6 +1,9 @@
+ <?php
+-class PG_Prestashop_Utils
++class Globalpay_PaymentUtils
+ {
++    private const PAYMENT_FLOW_CARD = 'card';
++    private const PAYMENT_FLOW_LTP = 'ltp';
++
+     /**
+      * Method to validate two-letter state codes.
+      *
+@@ -278,4 +281,144 @@ class PG_Prestashop_Utils
+         );
+         return isset($countries[$country]) ? $countries[$country] : $country;
+     }
++
++    public static function markOrderPaymentFlow(Order $order, string $flow): void
++    {
++        $marker = self::paymentFlowMarker($flow);
++        if ($marker === '') {
++            return;
++        }
++
++        $collection = OrderPayment::getByOrderReference($order->reference);
++        foreach ($collection as $order_payment) {
++            if ($order_payment->payment_method == GP_FLAVOR . ' Prestashop Plugin' || !$order_payment->payment_method) {
++                $order_payment->card_brand = $marker;
++                $order_payment->save();
++            }
++        }
++    }
++
++    public static function isCardRefundableOrder(Order $order): bool
++    {
++        $collection = OrderPayment::getByOrderReference($order->reference);
++        $hasGlobalpayPayment = false;
++        foreach ($collection as $order_payment) {
++            if ($order_payment->payment_method != GP_FLAVOR . ' Prestashop Plugin' && $order_payment->payment_method) {
++                continue;
++            }
++            $hasGlobalpayPayment = true;
++
++            if ($order_payment->card_brand === self::paymentFlowMarker(self::PAYMENT_FLOW_CARD)) {
++                return true;
++            }
++
++            if ($order_payment->card_brand === self::paymentFlowMarker(self::PAYMENT_FLOW_LTP)) {
++                return false;
++            }
++        }
++
++        // Backward compatibility with existing orders created before flow markers.
++        return $hasGlobalpayPayment;
++    }
++
++    public static function isLinkToPayOrder(Order $order): bool
++    {
++        $collection = OrderPayment::getByOrderReference($order->reference);
++        foreach ($collection as $order_payment) {
++            if ($order_payment->payment_method != GP_FLAVOR . ' Prestashop Plugin' && $order_payment->payment_method) {
++                continue;
++            }
++
++            if ($order_payment->card_brand === self::paymentFlowMarker(self::PAYMENT_FLOW_LTP)) {
++                return true;
++            }
++        }
++
++        return false;
++    }
++
++    private static function paymentFlowMarker(string $flow): string
++    {
++        if ($flow === self::PAYMENT_FLOW_CARD) {
++            return 'Globalpay Card';
++        }
++
++        if ($flow === self::PAYMENT_FLOW_LTP) {
++            return 'Globalpay LinkToPay';
++        }
++
++        return '';
++    }
++
++    public static function buildFrontSecuritySignature(Cart $cart, Customer $customer): string
++    {
++        $secureKey = (string) $customer->secure_key;
++        return hash(
++            'sha256',
++            (string) $cart->id . '|' . (string) $customer->id . '|' . $secureKey . '|' . _COOKIE_KEY_
++        );
++    }
++
++    public static function isValidFrontSecuritySignature(string $signature, Cart $cart, Customer $customer): bool
++    {
++        if ($signature === '') {
++            return false;
++        }
++
++        $expected = self::buildFrontSecuritySignature($cart, $customer);
++        return hash_equals($expected, $signature);
++    }
++
++    public static function getCartAmountAndVat(Cart $cart): array
++    {
++        $totalWithTax = (float) $cart->getOrderTotal(true, Cart::BOTH);
++        $totalWithoutTax = (float) $cart->getOrderTotal(false, Cart::BOTH);
++        $vat = round($totalWithTax - $totalWithoutTax, 2);
++
++        if ($vat <= 0) {
++            $summary = $cart->getSummaryDetails();
++            $summaryVat = (float) ($summary['total_tax'] ?? 0);
++            if ($summaryVat > 0) {
++                $vat = round($summaryVat, 2);
++            }
++        }
++
++        if ($vat <= 0) {
++            $productsVat = 0.0;
++            $products = $cart->getProducts();
++            foreach ($products as $product) {
++                $lineWithTax = 0.0;
++                $lineWithoutTax = 0.0;
++
++                if (isset($product['total_wt'], $product['total'])) {
++                    $lineWithTax = (float) $product['total_wt'];
++                    $lineWithoutTax = (float) $product['total'];
++                } elseif (isset($product['price_wt'], $product['price'], $product['cart_quantity'])) {
++                    $quantity = (float) $product['cart_quantity'];
++                    $lineWithTax = (float) $product['price_wt'] * $quantity;
++                    $lineWithoutTax = (float) $product['price'] * $quantity;
++                }
++
++                $productsVat += max(0.0, $lineWithTax - $lineWithoutTax);
++            }
++
++            $shippingWithTax = (float) $cart->getOrderTotal(true, Cart::ONLY_SHIPPING);
++            $shippingWithoutTax = (float) $cart->getOrderTotal(false, Cart::ONLY_SHIPPING);
++            $shippingVat = max(0.0, $shippingWithTax - $shippingWithoutTax);
++
++            $fallbackVat = round($productsVat + $shippingVat, 2);
++            if ($fallbackVat > 0) {
++                $vat = $fallbackVat;
++            }
++        }
++
++        if ($vat < 0) {
++            $vat = 0.0;
++        }
++
++        return [
++            'total' => $totalWithTax,
++            'vat' => $vat,
++        ];
++    }
+ }
+diff --git a/pg_prestashop_plugin.php b/pg_prestashop_plugin.php
+index aa462ae..e2ceeb7 100644
+--- a/pg_prestashop_plugin.php
++++ b/pg_prestashop_plugin.php
+@@ -3,55 +3,72 @@
+ <?php
+ use PrestaShop\PrestaShop\Core\Payment\PaymentOption;
+ 
+-include_once(_PS_MODULE_DIR_.'pg_prestashop_plugin/classes/WebserviceSpecificManagementGlobalpayWebhook.php');
++include_once(__DIR__.'/controllers/front/utils.php');
++include_once(__DIR__.'/classes/WebserviceSpecificManagementGlobalpayWebhook.php');
+ 
+-const FLAVOR = 'Globalpay';
+-const FLAVOR_DOMAIN = 'globalpay.com.co';
+-const REFUND_PATH = '/v2/transaction/refund/';
++const GP_FLAVOR = 'Globalpay';
++const GP_FLAVOR_DOMAIN = 'globalpay.com.co';
++const GP_REFUND_PATH = '/v2/transaction/refund/';
++const GP_WEBHOOK_RESOURCE_NAME = 'globalpaywebhook';
++const GP_WEBHOOK_WS_CONFIG_KEY = 'PG_PRESTASHOP_PLUGIN_WEBHOOK_WS_KEY';
+ 
+ /**
+- * PG_Prestashop_Plugin - A Payment Module for PrestaShop 1.7.7
++ * PG_Prestashop_Plugin - A Payment Module for PrestaShop 8.x / 9.x
+  * @author Globalpay Development <dev@globalpay.com.co>
+  * @license http://opensource.org/licenses/afl-3.0.php
+  * @method l(string $string), Prestashop Language Method
+  */
+-class PG_Prestashop_Plugin extends PaymentModule
++class Globalpay_Payment extends PaymentModule
+ {
+     public function __construct()
+     {
+-        $this->name                   = 'pg_prestashop_plugin';
++        $this->name                   = basename(__DIR__);
+         $this->tab                    = 'payments_gateways';
+-        $this->version                = '2.1.0';
+-        $this->author                 = FLAVOR.$this->l(' Development');
++        $this->version                = '3.0.1';
++        $this->author                 = GP_FLAVOR.$this->l(' Development');
+         $this->currencies             = true;
+         $this->currencies_mode        = 'radio';
+         $this->bootstrap              = true;
+-        $this->displayName            = FLAVOR.' Prestashop Plugin';
+-        $this->description            = FLAVOR.$this->l(' Payment module for process card payments.');
+-        $this->confirmUninstall       = $this->l('Are you sure you want to uninstall the payment module by ').FLAVOR.'?';
+-        $this->ps_versions_compliancy = array('min' => '1.7.7.0', 'max' => _PS_VERSION_);
++        $this->displayName            = GP_FLAVOR.' Prestashop Plugin';
++        $this->description            = GP_FLAVOR.$this->l(' Payment module for process card payments.');
++        $this->confirmUninstall       = $this->l('Are you sure you want to uninstall the payment module by ').GP_FLAVOR.'?';
++        $this->ps_versions_compliancy = array('min' => '8.0.0', 'max' => _PS_VERSION_);
+ 
+         parent::__construct();
+     }
+ 
+     public function install(): bool
+     {
+-        return parent::install()
++        $installed = parent::install()
+             && $this->registerHook('header')
+             && $this->registerHook('displayPaymentReturn')
++            && $this->registerHook('paymentReturn')
+             && $this->registerHook('actionProductCancel')
++            && $this->registerHook('actionOrderSlipAdd')
++            && $this->registerHook('displayBackOfficeHeader')
+             && $this->registerHook('paymentOptions')
+             && $this->registerHook('addWebserviceResources');
++
++        if ($installed) {
++            $this->installWebhookWebservice();
++        }
++
++        return $installed;
+     }
+ 
+     public function uninstall(): bool
+     {
+-        return parent::uninstall();
++        return $this->uninstallWebhookWebservice() && parent::uninstall();
++    }
++
++    public function syncWebhookWebservice(): bool
++    {
++        return $this->installWebhookWebservice();
+     }
+ 
+     public function getContent(): string
+     {
+-        $output = null;
++        $output = '';
+         $error_messages = [];
+ 
+         if (Tools::isSubmit('submit'.$this->name)) {
+@@ -66,28 +83,6 @@ class PG_Prestashop_Plugin extends PaymentModule
+                 Configuration::updateValue('environment', $environment);
+             }
+ 
+-            $app_code_client = strval(Tools::getValue('app_code_client'));
+-            if (
+-                !$app_code_client ||
+-                empty($app_code_client) ||
+-                !Validate::isGenericName($app_code_client)
+-            ) {
+-                array_push($error_messages, $this->l('Invalid App Code Client Configuration Value'));
+-            } else {
+-                Configuration::updateValue('app_code_client', $app_code_client);
+-            }
+-
+-            $app_key_client = strval(Tools::getValue('app_key_client'));
+-            if (
+-                !$app_key_client ||
+-                empty($app_key_client) ||
+-                !Validate::isGenericName($app_key_client)
+-            ) {
+-                array_push($error_messages, $this->l('Invalid App Key Client Configuration Value'));
+-            } else {
+-                Configuration::updateValue('app_key_client', $app_key_client);
+-            }
+-
+             $app_code_server = strval(Tools::getValue('app_code_server'));
+             if (
+                 !$app_code_server ||
+@@ -161,8 +156,8 @@ class PG_Prestashop_Plugin extends PaymentModule
+                 Configuration::updateValue('ltp_expiration_days', $ltp_expiration_days);
+             }
+ 
+-            $enable_installments = strval(Tools::getValue('enable_installments'));
+-            Configuration::updateValue('enable_installments', $enable_installments);
++            $installments_type = intval(Tools::getValue('installments_type'));
++            Configuration::updateValue('installments_type', $installments_type);
+ 
+             if (!$error_messages) {
+                 $output .= $this->displayConfirmation($this->l('Settings updated'));
+@@ -184,7 +179,8 @@ class PG_Prestashop_Plugin extends PaymentModule
+         // Init Fields form array
+         $fieldsForm[0]['form'] = [
+             'legend' => [
+-                'title' => $this->l('Payment Gateway Configurations: ').FLAVOR,
++                'title' => $this->l('Payment Gateway Configurations: ').GP_FLAVOR,
++                'image' => $this->_path.'imgs/payment-logo.svg',
+             ],
+             'input' => [
+                 [
+@@ -208,31 +204,17 @@ class PG_Prestashop_Plugin extends PaymentModule
+                         'name'  => 'name',
+                     ]
+                 ],
+-                [
+-                    'type'     => 'text',
+-                    'label'    => $this->l('App Code Client:'),
+-                    'desc'     => $this->l('Unique commerce identifier in ').FLAVOR,
+-                    'name'     => 'app_code_client',
+-                    'required' => true
+-                ],
+-                [
+-                    'type'     => 'text',
+-                    'label'    => $this->l('App Key Client:'),
+-                    'desc'     => $this->l('Key used to encrypt communication with ').FLAVOR,
+-                    'name'     => 'app_key_client',
+-                    'required' => true
+-                ],
+                 [
+                     'type'     => 'text',
+                     'label'    => $this->l('App Code Server:'),
+-                    'desc'     => $this->l('Unique commerce identifier to perform admin actions on ').FLAVOR,
++                    'desc'     => $this->l('Unique commerce identifier to perform admin actions on ').GP_FLAVOR,
+                     'name'     => 'app_code_server',
+                     'required' => true
+                 ],
+                 [
+                     'type'     => 'text',
+                     'label'    => $this->l('App Key Server:'),
+-                    'desc'     => $this->l('Key used to encrypt admin communication with ').FLAVOR,
++                    'desc'     => $this->l('Key used to encrypt admin communication with ').GP_FLAVOR,
+                     'name'     => 'app_key_server',
+                     'required' => true
+                 ],
+@@ -325,25 +307,39 @@ class PG_Prestashop_Plugin extends PaymentModule
+                     'required' => true,
+                 ],
+                 [
+-                    'type'      => 'select',
+-                    'label'     => $this->l('Allow Installments:'),
+-                    'desc'      => $this->l('If selected, the installments options will be showed on the payment screen (Only on card payment).'),
+-                    'name'      => 'enable_installments',
+-                    'required'  => true,
+-                    'options'   => [
++                    'type'     => 'select',
++                    'label'    => $this->l('Installments Type:'),
++                    'desc'     => $this->l('Installments type sent to the payment gateway on card checkout. Select Disabled if not applicable.'),
++                    'name'     => 'installments_type',
++                    'required' => true,
++                    'options'  => [
+                         'query' => [
+-                            [
+-                                'id_option' => 0,
+-                                'name'      => 'Disabled',
+-                            ],
+-                            [
+-                                'id_option' => 1,
+-                                'name'      => 'Enabled',
+-                            ],
++                            ['id_option' => -1, 'name' => $this->l('Disabled')],
++                            ['id_option' => 0,  'name' => $this->l('Revolving credit (Colombia)')],
++                            ['id_option' => 1,  'name' => $this->l('Revolving and deferred without interest (Ecuador)')],
++                            ['id_option' => 2,  'name' => $this->l('Deferred with interest (Ecuador, México)')],
++                            ['id_option' => 3,  'name' => $this->l('Deferred without interest (Ecuador, México)')],
++                            ['id_option' => 6,  'name' => $this->l('Deferred without interest month by month (Ecuador - Medianet)')],
++                            ['id_option' => 7,  'name' => $this->l('Deferred with interest and months of grace (Ecuador)')],
++                            ['id_option' => 9,  'name' => $this->l('Deferred without interest and months of grace (Ecuador, México)')],
++                            ['id_option' => 10, 'name' => $this->l('Deferred without interest bimonthly promotion (Ecuador - Medianet)')],
++                            ['id_option' => 21, 'name' => $this->l('Diners Club deferred with/without interest (Ecuador)')],
++                            ['id_option' => 22, 'name' => $this->l('Diners Club deferred with/without interest v2 (Ecuador)')],
++                            ['id_option' => 30, 'name' => $this->l('Deferred with interest month by month (Ecuador - Medianet)')],
++                            ['id_option' => 50, 'name' => $this->l('Deferred without interest Supermaxi promotions (Ecuador - Medianet)')],
++                            ['id_option' => 51, 'name' => $this->l('Deferred with interest Cuota fácil (Ecuador - Medianet)')],
++                            ['id_option' => 52, 'name' => $this->l('Without interest Redención Produmillas (Ecuador - Medianet)')],
++                            ['id_option' => 53, 'name' => $this->l('Without interest sale promotions (Ecuador - Medianet)')],
++                            ['id_option' => 70, 'name' => $this->l('Deferred special without interest (Ecuador - Medianet)')],
++                            ['id_option' => 72, 'name' => $this->l('Credit without interest cte smax (Ecuador - Medianet)')],
++                            ['id_option' => 73, 'name' => $this->l('Special credit without interest smax (Ecuador - Medianet)')],
++                            ['id_option' => 74, 'name' => $this->l('Prepay without interest smax (Ecuador - Medianet)')],
++                            ['id_option' => 75, 'name' => $this->l('Deferred credit without interest smax (Ecuador - Medianet)')],
++                            ['id_option' => 90, 'name' => $this->l('Without interest with months of grace Supermaxi (Ecuador - Medianet)')],
+                         ],
+-                        'id'    => 'id_option',
+-                        'name'  => 'name',
+-                    ]
++                        'id'   => 'id_option',
++                        'name' => 'name',
++                    ],
+                 ],
+             ],
+             'submit' => [
+@@ -353,12 +349,13 @@ class PG_Prestashop_Plugin extends PaymentModule
+         ];
+ 
+         $helper = new HelperForm();
++        $adminModulesLink = $this->context->link->getAdminLink('AdminModules', false);
+ 
+         // Module, token and currentIndex
+         $helper->module          = $this;
+         $helper->name_controller = $this->name;
+         $helper->token           = Tools::getAdminTokenLite('AdminModules');
+-        $helper->currentIndex    = AdminController::$currentIndex.'&configure='.$this->name;
++        $helper->currentIndex    = $adminModulesLink.'&configure='.$this->name;
+ 
+         // Language
+         $helper->default_form_language    = $defaultLang;
+@@ -372,18 +369,16 @@ class PG_Prestashop_Plugin extends PaymentModule
+         $helper->toolbar_btn    = [
+             'save' => [
+                 'desc' => $this->l('Save'),
+-                'href' => AdminController::$currentIndex.'&configure='.$this->name.'&save'.$this->name.
++                'href' => $adminModulesLink.'&configure='.$this->name.'&save'.$this->name.
+                     '&token='.Tools::getAdminTokenLite('AdminModules'),
+             ],
+             'back' => [
+-                'href' => AdminController::$currentIndex.'&token='.Tools::getAdminTokenLite('AdminModules'),
++                'href' => $adminModulesLink.'&token='.Tools::getAdminTokenLite('AdminModules'),
+                 'desc' => $this->l('Back to list')
+             ]
+         ];
+ 
+         // Load currents values
+-        $helper->fields_value['app_code_client']     = Tools::getValue('app_code_client', Configuration::get('app_code_client'));
+-        $helper->fields_value['app_key_client']      = Tools::getValue('app_key_client', Configuration::get('app_key_client'));
+         $helper->fields_value['app_code_server']     = Tools::getValue('app_code_server', Configuration::get('app_code_server'));
+         $helper->fields_value['app_key_server']      = Tools::getValue('app_key_server', Configuration::get('app_key_server'));
+         $helper->fields_value['checkout_language']   = Tools::getValue('checkout_language', Configuration::get('checkout_language'));
+@@ -393,15 +388,15 @@ class PG_Prestashop_Plugin extends PaymentModule
+         $helper->fields_value['ltp_button_text']     = Tools::getValue('ltp_button_text', Configuration::get('ltp_button_text'));
+         $helper->fields_value['card_button_text']    = Tools::getValue('card_button_text', Configuration::get('card_button_text'));
+         $helper->fields_value['ltp_expiration_days'] = intval(Tools::getValue('ltp_expiration_days', Configuration::get('ltp_expiration_days')));
+-        $helper->fields_value['enable_installments'] = Tools::getValue('enable_installments', Configuration::get('enable_installments'));
++        $helper->fields_value['installments_type']   = intval(Tools::getValue('installments_type', Configuration::get('installments_type')));
+ 
+         return $helper->generateForm($fieldsForm);
+     }
+ 
+-    public function hookPaymentOptions($params)
++    public function hookPaymentOptions($params): array
+     {
+         if (!$this->active) {
+-            return;
++            return [];
+         }
+ 
+         /**
+@@ -410,110 +405,226 @@ class PG_Prestashop_Plugin extends PaymentModule
+          */
+ 
+ 
++        $this->context->smarty->assign('module_dir', $this->_path);
+         $this->context->smarty->assign(array(
+-            'flavor' => FLAVOR,
++            'flavor' => GP_FLAVOR,
+         ));
+ 
++        $actionParams = [];
++        $cart = $this->context->cart;
++        $customer = $this->context->customer;
++        if (Validate::isLoadedObject($cart) && Validate::isLoadedObject($customer)) {
++            $actionParams['pg_sig'] = Globalpay_PaymentUtils::buildFrontSecuritySignature($cart, $customer);
++        }
++
+         $newOption = new PaymentOption();
+-        $newOption->setModuleName($this->displayName)
++        $newOption->setModuleName($this->name)
+             ->setCallToActionText($this->displayName)
+-            ->setAction($this->context->link->getModuleLink($this->name, 'payment'))
+-            ->setAdditionalInformation($this->context->smarty->fetch('module:pg_prestashop_plugin/views/templates/front/payment_infos.tpl'));
++            ->setLogo($this->_path . 'imgs/payment-logo.svg')
++            ->setAction($this->context->link->getModuleLink($this->name, 'payment', $actionParams, true))
++            ->setAdditionalInformation($this->context->smarty->fetch('module:'.$this->name.'/views/templates/front/payment_infos.tpl'));
+ 
+         return [$newOption];
+     }
+ 
+     public function hookActionProductCancel(array $params)
+     {
+-        if ($params['action'] === 1) {
+-            $amount_to_refund = 0;
++        $this->processRefundRequest($params);
++    }
+ 
+-            $cancel_product = $_POST['cancel_product'];
+-            $order = $params['order'];
+-            if (isset($cancel_product['shipping'])) {
+-                $amount_to_refund += (float)$order->total_shipping;
+-            }
++    public function hookActionOrderSlipAdd(array $params)
++    {
++        $this->processRefundRequest($params);
++    }
+ 
+-            $keys_pop = ['_token', 'save', 'voucher_refund_type', 'voucher', 'credit_slip', 'shipping_amount', 'shipping'];
+-            foreach ($keys_pop as $key) {
+-                unset($cancel_product[$key]);
+-            }
+-            // TODO: Definir un poco mas claras las variables y nombres para saber de que tratan, esta lógica es algo confusa
+-            $selected = [];
+-            $quantity = [];
+-            foreach (array_keys($cancel_product) as $key) {
+-                if (strpos($key, 'selected') !== false) {
+-                    $id_order_detail = (string)explode('_', $key)[1];
+-                    $selected[$id_order_detail] = $cancel_product[$key];
+-                } else if (strpos($key, 'quantity') !== false) {
+-                    $id_order_detail = (string)explode('_', $key)[1];
+-                    $quantity[$id_order_detail] = $cancel_product[$key];
+-                }
++    private function processRefundRequest(array $params): void
++    {
++        if ((int) ($params['action'] ?? 1) !== 1 && empty($_POST['cancel_product'])) {
++            return;
++        }
++
++        $order = $this->resolveRefundOrder($params);
++        if (!$order instanceof Order || !Validate::isLoadedObject($order)) {
++            return;
++        }
++
++        if (!Globalpay_PaymentUtils::isCardRefundableOrder($order)) {
++            PrestaShopLogger::addLog('Globalpay refund skipped: only card payments are refundable.', 3);
++            return;
++        }
++
++        $amount_to_refund = $this->resolveRefundAmount($params, $order);
++        if ($amount_to_refund <= 0) {
++            PrestaShopLogger::addLog('Globalpay refund skipped: refund amount is zero.', 3);
++            return;
++        }
++
++        $transaction_id = $this->getOrderTransactionId($order);
++        if ($transaction_id === '') {
++            PrestaShopLogger::addLog('Globalpay refund skipped: transaction id not found.', 3);
++            return;
++        }
++
++        $response = $this->sendRefundToGateway($transaction_id, $amount_to_refund);
++        if ($response === null) {
++            return;
++        }
++
++        $history = new OrderHistory();
++        $history->id_order = (int) $order->id;
++        $history->changeIdOrderState($this->getRefundOrderStateId(), (int) $order->id);
++        $history->save();
++    }
++
++    private function resolveRefundOrder(array $params)
++    {
++        if (isset($params['order']) && $params['order'] instanceof Order) {
++            return $params['order'];
++        }
++
++        if (isset($params['order']) && is_object($params['order']) && !empty($params['order']->id)) {
++            return new Order((int) $params['order']->id);
++        }
++
++        $idOrder = (int) (
++            $params['id_order']
++            ?? $_POST['id_order']
++            ?? Tools::getValue('id_order')
++            ?? 0
++        );
++        if ($idOrder > 0) {
++            return new Order($idOrder);
++        }
++
++        return null;
++    }
++
++    private function resolveRefundAmount(array $params, Order $order): float
++    {
++        $cancel_product = (array) ($_POST['cancel_product'] ?? []);
++        if (!empty($cancel_product)) {
++            return $this->calculateRefundAmount($cancel_product, $order);
++        }
++
++        foreach (['amount_to_refund', 'refund_amount', 'amount', 'total'] as $key) {
++            if (isset($params[$key]) && is_numeric($params[$key])) {
++                return (float) $params[$key];
+             }
++        }
+ 
+-            $unit_prices = [];
+-            foreach ($selected as $key => $value) {
+-                if ($value) {
+-                    $order_detail = new OrderDetail((int)$key);
+-                    $unit_prices[$key] = (float)$order_detail->unit_price_tax_incl;
+-                }
++        return 0.0;
++    }
++
++    private function sendRefundToGateway(string $transaction_id, float $amount_to_refund): ?array
++    {
++        $environment = Configuration::get('environment');
++        $url = ($environment == 1)
++            ? 'https://ccapi-stg.' . GP_FLAVOR_DOMAIN . GP_REFUND_PATH
++            : 'https://ccapi.' . GP_FLAVOR_DOMAIN . GP_REFUND_PATH;
++
++        $app_code_server = Configuration::get('app_code_server');
++        $app_key_server = Configuration::get('app_key_server');
++        $refund_data = [
++            'transaction' => ['id' => $transaction_id],
++            'order' => ['amount' => round($amount_to_refund, 2, PHP_ROUND_HALF_DOWN)],
++        ];
++        $payload = json_encode($refund_data);
++
++        $timestamp = (string) time();
++        $uniq_token_hash = hash('sha256', $app_key_server . $timestamp);
++        $auth_token = base64_encode($app_code_server . ';' . $timestamp . ';' . $uniq_token_hash);
++
++        $ch = curl_init($url);
++        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
++        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
++        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
++        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
++        curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
++        curl_setopt($ch, CURLOPT_HTTPHEADER, [
++            'Content-Type:application/json',
++            'Auth-Token:' . $auth_token,
++        ]);
++        $response = curl_exec($ch);
++        $curl_error = curl_error($ch);
++        curl_close($ch);
++
++        if ($response === false || $curl_error !== '') {
++            PrestaShopLogger::addLog('Globalpay refund cURL error: ' . $curl_error, 3);
++            return null;
++        }
++
++        $get_response = json_decode($response, true);
++        if (!is_array($get_response) || !empty($get_response['error']) || (($get_response['status'] ?? '') == 'failure')) {
++            PrestaShopLogger::addLog('Globalpay refund failed. Response: ' . (string) $response, 3);
++            return null;
++        }
++
++        return $get_response;
++    }
++
++    private function calculateRefundAmount(array $cancel_product, Order $order): float
++    {
++        if ($this->isFullRefundRequest($cancel_product)) {
++            return (float) $order->total_paid;
++        }
++
++        $amount_to_refund = 0;
++        if (isset($cancel_product['shipping'])) {
++            $amount_to_refund += (float) $order->total_shipping;
++        }
++
++        $keys_pop = ['_token', 'save', 'voucher_refund_type', 'voucher', 'credit_slip', 'shipping_amount', 'shipping'];
++        foreach ($keys_pop as $key) {
++            unset($cancel_product[$key]);
++        }
++
++        $selected = [];
++        $quantity = [];
++        foreach (array_keys($cancel_product) as $key) {
++            if (strpos($key, 'selected') !== false) {
++                $id_order_detail = (string) explode('_', $key)[1];
++                $selected[$id_order_detail] = $cancel_product[$key];
++            } elseif (strpos($key, 'quantity') !== false) {
++                $id_order_detail = (string) explode('_', $key)[1];
++                $quantity[$id_order_detail] = $cancel_product[$key];
+             }
+-            foreach ($unit_prices as $key => $value) {
+-                $amount_to_refund += $quantity[$key] * $value;
++        }
++
++        foreach ($selected as $key => $value) {
++            if ($value) {
++                $order_detail = new OrderDetail((int) $key);
++                $amount_to_refund += ((float) ($quantity[$key] ?? 0)) * (float) $order_detail->unit_price_tax_incl;
+             }
++        }
+ 
+-            $environment = Configuration::get('environment');
+-            $url = ($environment == 1) ? 'https://ccapi-stg.' . FLAVOR_DOMAIN . REFUND_PATH : 'https://ccapi.' . FLAVOR_DOMAIN . REFUND_PATH;
++        return $amount_to_refund;
++    }
+ 
+-            // TODO: Crear un "get_payment_id()" para no copiar y pegar código para obtener el $transaction_id
+-            $collection = OrderPayment::getByOrderReference($order->reference);
+-            $transaction_id = "";
+-            if (count($collection) > 0) {
+-                foreach ($collection as $order_payment) {
+-                    if ($order_payment->payment_method == FLAVOR . ' Prestashop Plugin') {
+-                        $transaction_id = $order_payment->transaction_id;
+-                    }
+-                }
+-            }
++    private function isFullRefundRequest(array $cancel_product): bool
++    {
++        return !empty($cancel_product['credit_slip']) && (string) $cancel_product['credit_slip'] !== '0';
++    }
+ 
+-            $app_code_server = Configuration::get('app_code_server');
+-            $app_key_server  = Configuration::get('app_key_server');
+-            $refund_data = [
+-                "transaction" => ["id" => $transaction_id],
+-                "order" => ["amount" => round($amount_to_refund, 2, PHP_ROUND_HALF_DOWN)]
+-            ];
+-            $payload = json_encode($refund_data);
+-
+-            $timestamp         = (string)time();
+-            $uniq_token_string = $app_key_server . $timestamp;
+-            $uniq_token_hash   = hash('sha256', $uniq_token_string);
+-            $auth_token        = base64_encode($app_code_server . ';' . $timestamp . ';' . $uniq_token_hash);
+-
+-            $ch = curl_init($url);
+-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+-            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+-            curl_setopt($ch, CURLOPT_POSTFIELDS, ($payload));
+-            curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+-                'Content-Type:application/json',
+-                'Auth-Token:' . $auth_token));
+-            $response = curl_exec($ch);
+-            curl_close($ch);
+-            $get_response = json_decode($response, true);
+-            if ($get_response['error'] || $get_response['status'] == 'failure') {
+-                $tab          = Tools::getValue('tab');
+-                $currentIndex = __PS_BASE_URI__ . substr($_SERVER['SCRIPT_NAME'], strlen(__PS_BASE_URI__)) . ($tab ? '?tab=' . $tab : '');
+-                $token        = Tools::getAdminTokenLite($tab);
+-                // TODO: Este reedirect no recarga la página actual, no c que pasa, parece tema del currentIndex
+-                Tools::redirectLink($currentIndex . '&id_order=' . $order->id . '&vieworder&conf=1&token=' . $token);
++    private function getOrderTransactionId(Order $order): string
++    {
++        $collection = OrderPayment::getByOrderReference($order->reference);
++        if (count($collection) === 0) {
++            return '';
++        }
+ 
+-            } else {
+-                // TODO: Agregar a un helper? change_order_history() o algo así
+-                $history           = new OrderHistory();
+-                $history->id_order = (int)$order->id;
+-                $history->changeIdOrderState(7, (int)($order->id));
+-                $history->save();
++        foreach ($collection as $order_payment) {
++            if ($order_payment->payment_method == GP_FLAVOR . ' Prestashop Plugin') {
++                return (string) $order_payment->transaction_id;
+             }
+         }
++
++        return '';
++    }
++
++    private function getRefundOrderStateId(): int
++    {
++        $refundStateId = (int) Configuration::get('PS_OS_REFUND');
++        return $refundStateId > 0 ? $refundStateId : 7;
+     }
+ 
+     public function hookHeader()
+@@ -524,10 +635,44 @@ class PG_Prestashop_Plugin extends PaymentModule
+         );
+     }
+ 
+-    public function hookDisplayPaymentReturn($params)
++    public function hookDisplayBackOfficeHeader(): string
++    {
++        if ((string) Tools::getValue('configure') === $this->name) {
++            return '<style>
++                img[src*="/modules/' . $this->name . '/imgs/payment-logo.svg"] {
++                    width: 50% !important;
++                    height: auto !important;
++                }
++            </style>';
++        }
++
++        $idOrder = (int) Tools::getValue('id_order');
++        if ($idOrder <= 0) {
++            return '';
++        }
++
++        $order = new Order($idOrder);
++        if (!Validate::isLoadedObject($order) || !Globalpay_PaymentUtils::isLinkToPayOrder($order)) {
++            return '';
++        }
++
++        return '<script>
++            document.addEventListener("DOMContentLoaded", function () {
++                var nodes = document.querySelectorAll("button, input[type=\\"submit\\"], a.btn");
++                nodes.forEach(function (node) {
++                    var text = (node.innerText || node.value || "").toLowerCase();
++                    if (text.indexOf("refund") !== -1 || text.indexOf("reembolso") !== -1) {
++                        node.style.display = "none";
++                    }
++                });
++            });
++        </script>';
++    }
++
++    public function hookDisplayPaymentReturn($params): string
+     {
+         if (!$this->active) {
+-            return;
++            return '';
+         }
+ 
+         $transaction_id = '';
+@@ -540,21 +685,119 @@ class PG_Prestashop_Plugin extends PaymentModule
+             }
+         }
+ 
+-        $this->context->smarty->assign(array(
++        $ltp_status = (string) Tools::getValue('ltp_status');
++        $pg_approved = $ltp_status === 'success' ? true : ($this->context->cookie->pg_payment_approved === '1');
++        $ltp_failed = $ltp_status === 'failed' || ($this->context->cookie->ltp_failed ?? '') === '1';
++        $ltp_pending = $ltp_status === 'pending' || ($this->context->cookie->ltp_pending ?? '') === '1';
++        $ltp_review = $ltp_status === 'review' || ($this->context->cookie->ltp_review ?? '') === '1';
++        unset($this->context->cookie->pg_payment_approved);
++        unset($this->context->cookie->ltp_failed);
++        unset($this->context->cookie->ltp_pending);
++        unset($this->context->cookie->ltp_review);
++
++        $this->context->smarty->assign([
+             'payment_id' => $transaction_id,
+-            'module_gtw' => $this->displayName
+-        ));
++            'module_gtw' => $this->displayName,
++            'pg_payment_approved' => $pg_approved,
++            'ltp_failed' => $ltp_failed,
++            'ltp_pending' => $ltp_pending,
++            'ltp_review' => $ltp_review,
++        ]);
+         return $this->display(__FILE__, 'views/templates/hook/payment_return.tpl');
+     }
+ 
+-    public function hookAddWebserviceResources()
++    public function hookPaymentReturn($params): string
++    {
++        return $this->hookDisplayPaymentReturn($params);
++    }
++
++    public function hookAddWebserviceResources(): array
+     {
+-        $webhook_name = strtolower(FLAVOR.'webhook');
+         return array(
+-            $webhook_name => array(
+-                'description'         => FLAVOR.' Webhook Management.',
++            GP_WEBHOOK_RESOURCE_NAME => array(
++                'description'         => GP_FLAVOR.' Webhook Management.',
+                 'specific_management' => true
+             )
+         );
+     }
+-}
+\ No newline at end of file
++
++    private function getWebserviceAccountIdByKey(string $key): int
++    {
++        return (int) Db::getInstance()->getValue(
++            'SELECT `id_webservice_account` FROM `'._DB_PREFIX_.'webservice_account` WHERE `api_key` = "'.pSQL($key).'"'
++        );
++    }
++
++    private function installWebhookWebservice(): bool
++    {
++        try {
++            $permissions = $this->getWebhookPermissions();
++            $storedKey = (string) Configuration::get(GP_WEBHOOK_WS_CONFIG_KEY);
++            if ($storedKey !== '') {
++                $accountId = $this->getWebserviceAccountIdByKey($storedKey);
++                if ($accountId > 0) {
++                    return WebserviceKey::setPermissionForAccount($accountId, $permissions);
++                }
++            }
++
++            $generatedKey = bin2hex(random_bytes(16));
++
++            $account = new WebserviceKey();
++            $account->key = $generatedKey;
++            $account->description = GP_FLAVOR . ' webhook';
++            $account->active = true;
++
++            if (!$account->add()) {
++                PrestaShopLogger::addLog('Globalpay could not create the webhook webservice key.', 3);
++                return false;
++            }
++
++            if (!WebserviceKey::setPermissionForAccount((int) $account->id, $permissions)) {
++                $account->delete();
++                PrestaShopLogger::addLog('Globalpay could not configure webhook permissions.', 3);
++                return false;
++            }
++
++            return Configuration::updateValue(GP_WEBHOOK_WS_CONFIG_KEY, $generatedKey);
++        } catch (\Throwable $e) {
++            PrestaShopLogger::addLog('Globalpay webhook setup failed: ' . $e->getMessage(), 3);
++            return false;
++        }
++    }
++
++    private function getWebhookPermissions(): array
++    {
++        return [
++            GP_WEBHOOK_RESOURCE_NAME => [
++                'POST' => true,
++            ],
++        ];
++    }
++
++    private function uninstallWebhookWebservice(): bool
++    {
++        $storedKey = (string) Configuration::get(GP_WEBHOOK_WS_CONFIG_KEY);
++        if ($storedKey !== '') {
++            $accountId = $this->getWebserviceAccountIdByKey($storedKey);
++            if ($accountId > 0) {
++                $account = new WebserviceKey($accountId);
++                if ($account->id) {
++                    $account->delete();
++                }
++            }
++            return Configuration::deleteByName(GP_WEBHOOK_WS_CONFIG_KEY);
++        }
++
++        return true;
++    }
++}
++
++// Allow PrestaShop to find this module class regardless of the folder name.
++// When installed as 'pg_prestashop_plugin', an alias is created so PS can
++// instantiate the class by the folder name. When installed as 'globalpay_payment',
++// Globalpay_Payment already resolves correctly (PHP class names are case-insensitive).
++$_gp_module_alias = basename(__DIR__);
++if (!class_exists($_gp_module_alias, false)) {
++    class_alias('Globalpay_Payment', $_gp_module_alias);
++}
++unset($_gp_module_alias);
+\ No newline at end of file
+diff --git a/translations/br.php b/translations/br.php
+index caed16d..99a11ef 100644
+--- a/translations/br.php
++++ b/translations/br.php
+@@ -2,50 +2,50 @@
+ 
+ global $_MODULE;
+ $_MODULE = array();
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_407c8b95b792682e45a1337e95957c30'] = ' Desenvolvimento';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_bc4daade475c3f1caac20993939462b2'] = ' Módulo de pagamento para processar pagamentos com cartão.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_922dddfb62b1ac8c62a5230ca6b525da'] = 'Tem certeza de que deseja desinstalar o módulo de pagamento de ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_c53522a8663101e6124a87e1606e655c'] = 'Valor de configuração de idioma de checkout inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_56114bfdb02d5edbe3ff57f1fc45e94f'] = 'Valor de configuração App Code Client inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_428e56268213a9b0e165375300b8e4fb'] = 'Valor de configuração App Key Client inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_d79d75df4fd832f540b378f81cda5938'] = 'Valor de configuração App Code Server inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_f08fd3612bab2a60ac225352228459b3'] = 'Valor de configuração App Key Server inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_cd4d9c87e8ab6360729817948df9ef7d'] = 'Valor de configuração de idioma de checkout inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_ffbdcd5cd2e0512c645b95a3b2c5577a'] = 'Você deve selecionar pelo menos um método de pagamento.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_6f473b17a25914838b1440e1362f79e0'] = 'Valor de configuração de dias de expiração de LinkToPay inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_c888438d14855d7d96a2724ee9c306bd'] = 'Configurações atualizadas';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_7dd9a60402e8f1a5f404e28733be39a8'] = 'Configurações de gateway de pagamento: ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_06956dd27ad9f8ff76f7e43a8ec83a08'] = 'Ambiente:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_69b9d9ab7d9604e0f97cabd8f4a229f4'] = 'Ambiente de gateway de pagamento';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_0cbc6611f5540bd0809a388dc95a615b'] = 'Testes';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_756d97bb256b8580d4d71ee0c547804e'] = 'Produção';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_a18cf3e7431ec7798f19071b4f0c7263'] = 'Identificador exclusivo de comerciante em ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_04a49fe0f0a08dc81d85bf84ad0bc1c3'] = 'Chave usada para criptografar a comunicação com ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_12d447c7aa2ce1f78452a8a632869b2c'] = 'Identificador exclusivo do comerciante para realizar ações administrativas em ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_3e97144d77181b0bc84d9495dea21b8f'] = 'Chave usada para criptografar a comunicação administrativa com ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_755a51775e315de4d9f8f5703c36d9d5'] = 'Idioma do checkout:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_392c6a54aedea0e96a9d45b41bdd9456'] = 'Idioma preferido do usuário para a janela de pagamento. O inglês será usado por padrão.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_169d2deb647664decd9f90143cd524b3'] = 'Habilitar pagamento com cartão:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_677db3140548319c40c0f2e3a7748e58'] = 'Se selecionado, o cartão pode ser usado para pagar.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_d8dbf4082244fb93d30ae230fc8a5c89'] = 'Habilite LinkToPay:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_407c8a6b97eccf51e3cf815910f8e03c'] = 'Se selecionado, LinkToPay pode ser usado para pagar.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_01a934287d6b0f340ccbf4d26f7b161a'] = 'Texto do botão do cartão:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_b5a2dddda6d19dc5ec8a5ea2d4464de2'] = 'Isso controla o texto que o usuário vê no botão de pagamento com cartão. Pagar com cartão é usado por padrão.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_52595c399fb21423e35b2850762a55bc'] = 'Texto do botão LinkToPay:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_17b4f592d287709f16617726f2d32e89'] = 'Isso controla o texto que o usuário vê no botão de pagamento LinkToPay. O pagamento com LinkToPay é usado por padrão.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_ec737946b1cfbf436d676c41f052dc7f'] = 'Dias de expiração do LinkToPay:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_1d8ac2fcd92a75579b4645b99e6d7bf8'] = 'Este valor controla o número de dias que o LinkToPay gerado estará disponível para pagamento.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_38de068e3c2f9ba1775b4dcb094fd135'] = 'Permitir cotas:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_8fba71149a61ab2cbd1a240eb56c2840'] = 'Se selecionado, as opções de parcelamento serão exibidas na tela de pagamento (somente pagamento com cartão).';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_c9cc8cce247e49bae79f15173ce97354'] = 'Guarda';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_630f6dc397fe74e52d5189e2c80f282b'] = 'De volta à lista';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_infos_b26fa41b09d5bc5431e8788601399902'] = ' %s é uma solução completa para pagamentos online. Seguro, fácil e rápido.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_e636936569f9ab61b2b839b4ddfd6638'] = 'Verifique seus itens para pagar';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_3501f8b4b8e546c8a6db4ed32b641eb2'] = 'Modificar ou excluir itens';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_62181d5a44e4366000f3c24fab48af3b'] = 'Tipos de cotas:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_c796a67ebd54a6aabc901d25a6618e08'] = 'Sem cotas';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_ecf417788592488bdb56becb90e59891'] = 'Erro ao gerar LinkToPay, resposta do gateway: ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_f8404b97bec82c39d288ab7f7158ec48'] = 'Ocorreu um erro ao processar o seu pagamento e não foi possível fazê-lo. Experimente outro cartão.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_return_3dbbff638cc490e8f970adbc8cfd0e4b'] = 'Parabéns!';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_return_299a4f840f75d7d93a4237911f872406'] = 'Você acabou de concluir um pedido usando %s';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_return_dd4441f8ab7ce03064f7488692a52369'] = 'Seu identificador de pagamento é: %s';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_407c8b95b792682e45a1337e95957c30'] = ' Desenvolvimento';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_bc4daade475c3f1caac20993939462b2'] = ' Módulo de pagamento para processar pagamentos com cartão.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_922dddfb62b1ac8c62a5230ca6b525da'] = 'Tem certeza de que deseja desinstalar o módulo de pagamento de ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_c53522a8663101e6124a87e1606e655c'] = 'Valor de configuração de idioma de checkout inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_56114bfdb02d5edbe3ff57f1fc45e94f'] = 'Valor de configuração App Code Client inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_428e56268213a9b0e165375300b8e4fb'] = 'Valor de configuração App Key Client inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_d79d75df4fd832f540b378f81cda5938'] = 'Valor de configuração App Code Server inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_f08fd3612bab2a60ac225352228459b3'] = 'Valor de configuração App Key Server inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_cd4d9c87e8ab6360729817948df9ef7d'] = 'Valor de configuração de idioma de checkout inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_ffbdcd5cd2e0512c645b95a3b2c5577a'] = 'Você deve selecionar pelo menos um método de pagamento.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_6f473b17a25914838b1440e1362f79e0'] = 'Valor de configuração de dias de expiração de LinkToPay inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_c888438d14855d7d96a2724ee9c306bd'] = 'Configurações atualizadas';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_7dd9a60402e8f1a5f404e28733be39a8'] = 'Configurações de gateway de pagamento: ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_06956dd27ad9f8ff76f7e43a8ec83a08'] = 'Ambiente:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_69b9d9ab7d9604e0f97cabd8f4a229f4'] = 'Ambiente de gateway de pagamento';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_0cbc6611f5540bd0809a388dc95a615b'] = 'Testes';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_756d97bb256b8580d4d71ee0c547804e'] = 'Produção';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_a18cf3e7431ec7798f19071b4f0c7263'] = 'Identificador exclusivo de comerciante em ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_04a49fe0f0a08dc81d85bf84ad0bc1c3'] = 'Chave usada para criptografar a comunicação com ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_12d447c7aa2ce1f78452a8a632869b2c'] = 'Identificador exclusivo do comerciante para realizar ações administrativas em ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_3e97144d77181b0bc84d9495dea21b8f'] = 'Chave usada para criptografar a comunicação administrativa com ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_755a51775e315de4d9f8f5703c36d9d5'] = 'Idioma do checkout:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_392c6a54aedea0e96a9d45b41bdd9456'] = 'Idioma preferido do usuário para a janela de pagamento. O inglês será usado por padrão.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_169d2deb647664decd9f90143cd524b3'] = 'Habilitar pagamento com cartão:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_677db3140548319c40c0f2e3a7748e58'] = 'Se selecionado, o cartão pode ser usado para pagar.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_d8dbf4082244fb93d30ae230fc8a5c89'] = 'Habilite LinkToPay:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_407c8a6b97eccf51e3cf815910f8e03c'] = 'Se selecionado, LinkToPay pode ser usado para pagar.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_01a934287d6b0f340ccbf4d26f7b161a'] = 'Texto do botão do cartão:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_b5a2dddda6d19dc5ec8a5ea2d4464de2'] = 'Isso controla o texto que o usuário vê no botão de pagamento com cartão. Pagar com cartão é usado por padrão.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_52595c399fb21423e35b2850762a55bc'] = 'Texto do botão LinkToPay:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_17b4f592d287709f16617726f2d32e89'] = 'Isso controla o texto que o usuário vê no botão de pagamento LinkToPay. O pagamento com LinkToPay é usado por padrão.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_ec737946b1cfbf436d676c41f052dc7f'] = 'Dias de expiração do LinkToPay:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_1d8ac2fcd92a75579b4645b99e6d7bf8'] = 'Este valor controla o número de dias que o LinkToPay gerado estará disponível para pagamento.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_38de068e3c2f9ba1775b4dcb094fd135'] = 'Permitir cotas:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_8fba71149a61ab2cbd1a240eb56c2840'] = 'Se selecionado, as opções de parcelamento serão exibidas na tela de pagamento (somente pagamento com cartão).';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_c9cc8cce247e49bae79f15173ce97354'] = 'Guarda';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_630f6dc397fe74e52d5189e2c80f282b'] = 'De volta à lista';
++$_MODULE['<{globalpay_payment}prestashop>payment_infos_b26fa41b09d5bc5431e8788601399902'] = ' %s é uma solução completa para pagamentos online. Seguro, fácil e rápido.';
++$_MODULE['<{globalpay_payment}prestashop>payment_e636936569f9ab61b2b839b4ddfd6638'] = 'Verifique seus itens para pagar';
++$_MODULE['<{globalpay_payment}prestashop>payment_3501f8b4b8e546c8a6db4ed32b641eb2'] = 'Modificar ou excluir itens';
++$_MODULE['<{globalpay_payment}prestashop>payment_62181d5a44e4366000f3c24fab48af3b'] = 'Tipos de cotas:';
++$_MODULE['<{globalpay_payment}prestashop>payment_c796a67ebd54a6aabc901d25a6618e08'] = 'Sem cotas';
++$_MODULE['<{globalpay_payment}prestashop>payment_ecf417788592488bdb56becb90e59891'] = 'Erro ao gerar LinkToPay, resposta do gateway: ';
++$_MODULE['<{globalpay_payment}prestashop>payment_f8404b97bec82c39d288ab7f7158ec48'] = 'Ocorreu um erro ao processar o seu pagamento e não foi possível fazê-lo. Experimente outro cartão.';
++$_MODULE['<{globalpay_payment}prestashop>payment_return_3dbbff638cc490e8f970adbc8cfd0e4b'] = 'Parabéns!';
++$_MODULE['<{globalpay_payment}prestashop>payment_return_299a4f840f75d7d93a4237911f872406'] = 'Você acabou de concluir um pedido usando %s';
++$_MODULE['<{globalpay_payment}prestashop>payment_return_dd4441f8ab7ce03064f7488692a52369'] = 'Seu identificador de pagamento é: %s';
+diff --git a/translations/co.php b/translations/co.php
+index 86648f6..049cf10 100644
+--- a/translations/co.php
++++ b/translations/co.php
+@@ -2,69 +2,69 @@
+ 
+ global $_MODULE;
+ $_MODULE = array();
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_407c8b95b792682e45a1337e95957c30'] = ' Desarrollo';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_bc4daade475c3f1caac20993939462b2'] = ' Módulo de pago para procesar pagos con tarjeta.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_922dddfb62b1ac8c62a5230ca6b525da'] = '¿Está seguro de que desea desinstalar el módulo de pago de ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_c53522a8663101e6124a87e1606e655c'] = 'Valor de Configuración del Idioma del Checkout Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_56114bfdb02d5edbe3ff57f1fc45e94f'] = 'Valor de Configuración del App Code Client Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_428e56268213a9b0e165375300b8e4fb'] = 'Valor de Configuración del App Key Client Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_d79d75df4fd832f540b378f81cda5938'] = 'Valor de Configuración del App Code Server Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_f08fd3612bab2a60ac225352228459b3'] = 'Valor de Configuración del App Key Server Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_cd4d9c87e8ab6360729817948df9ef7d'] = 'Valor de Configuración del Idioma del Checkout Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_ffbdcd5cd2e0512c645b95a3b2c5577a'] = 'Debes Seleccionar al Menos un Método de Pago.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_6f473b17a25914838b1440e1362f79e0'] = 'Valor de Configuración de Días de Vencimiento del LinkToPay no Válido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_c888438d14855d7d96a2724ee9c306bd'] = 'Configuraciones actualizadas';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_7dd9a60402e8f1a5f404e28733be39a8'] = 'Configuraciones de la Pasarela de Pago: ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_06956dd27ad9f8ff76f7e43a8ec83a08'] = 'Entorno:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_69b9d9ab7d9604e0f97cabd8f4a229f4'] = 'Entorno de la Pasarela de Pago';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_0cbc6611f5540bd0809a388dc95a615b'] = 'Pruebas';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_756d97bb256b8580d4d71ee0c547804e'] = 'Producción';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_a18cf3e7431ec7798f19071b4f0c7263'] = 'Identificador único de comercio en ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_04a49fe0f0a08dc81d85bf84ad0bc1c3'] = 'Clave utilizada para cifrar la comunicación con ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_12d447c7aa2ce1f78452a8a632869b2c'] = 'Identificador único de comercio para realizar acciones administrativas en ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_3e97144d77181b0bc84d9495dea21b8f'] = 'Clave utilizada para cifrar la comunicación administrativa con ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_755a51775e315de4d9f8f5703c36d9d5'] = 'Idioma del Checkout:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_392c6a54aedea0e96a9d45b41bdd9456'] = 'Idioma preferido del usuario para la ventana de pago. Inglés se utilizará de forma predeterminada.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_169d2deb647664decd9f90143cd524b3'] = 'Habilitar pago con tarjeta:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_677db3140548319c40c0f2e3a7748e58'] = 'Si se selecciona, tarjeta se puede utilizar para pagar.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_d8dbf4082244fb93d30ae230fc8a5c89'] = 'Habilitar LinkToPay:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_407c8a6b97eccf51e3cf815910f8e03c'] = 'Si se selecciona, LinkToPay se puede utilizar para pagar.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_01a934287d6b0f340ccbf4d26f7b161a'] = 'Texto del Botón de Tarjeta:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_b5a2dddda6d19dc5ec8a5ea2d4464de2'] = 'Esto controla el texto que ve el usuario en el botón de pago con tarjeta. Pagar con Tarjeta se utiliza de forma predeterminada.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_52595c399fb21423e35b2850762a55bc'] = 'Texto del Botón LinkToPay:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_17b4f592d287709f16617726f2d32e89'] = 'Esto controla el texto que el usuario ve en el botón de pago de LinkToPay. Pagar con LinkToPay se utiliza de forma predeterminada.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_ec737946b1cfbf436d676c41f052dc7f'] = 'Días de Vencimiento de LinkToPay:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_1d8ac2fcd92a75579b4645b99e6d7bf8'] = 'Este valor controla la cantidad de días que él LinkToPay generado estará disponible para pagar.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_38de068e3c2f9ba1775b4dcb094fd135'] = 'Permitir Cuotas:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_8fba71149a61ab2cbd1a240eb56c2840'] = 'Si se selecciona, las opciones de cuotas se mostrarán en la pantalla de pago (Solo en pago con tarjeta).';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_c9cc8cce247e49bae79f15173ce97354'] = 'Guardar';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_630f6dc397fe74e52d5189e2c80f282b'] = 'Volver al Listado';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_28ca29b3d10f2d64e2779f31463ba8d1'] = 'Revolvente y diferido sin intereses (El banco pagará al comercio la cuota, mes a mes) (Ecuador)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_75c08c3f31a513784fb6d32362477c45'] = 'Diferido con intereses (Ecuador, México)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_9f163b56bed9fb0ca55e1cb1475f0658'] = 'Diferido sin intereses (Ecuador, México)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_339dcb0da3a0d804a719e0a9f950cdc7'] = 'Diferido con intereses y meses de gracia (Ecuador)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_069804f47c7f37274146206047475e37'] = 'Pago diferido sin intereses mes a mes (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_2e7e54fbd71033ef6fd9571c355b2a46'] = 'Diferido sin intereses y meses de gracia (Ecuador, México)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_c392986693f61c84967d0807a38a142c'] = 'Promoción bimestral diferida sin intereses (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_d83cdd706fdf8af35d6c8e1b9eb76d58'] = 'Para Diners Club exclusivo, diferido con y sin interés (Ecuador)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_13e3c945b47f9e4d66ac5e5eb49a50be'] = 'Diferido con pago de intereses mes a mes (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_bcfa34ae07a627846ec7580f921be4e8'] = 'Promociones diferidas sin intereses (Supermaxi) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_f3afba533c8616347474bb8ef272c2a9'] = 'Diferido con intereses (Cuota fácil) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_c1e694b78cb8ec7a9b9a847a37d2aafb'] = 'Sin interés (Rendecion Produmillas) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_79ec97a34f35d4703bb4196f6303ab4b'] = 'Venta sin intereses con promociones (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_db190d2e5cd9d1dc6b126e43a2fa20ff'] = 'Especial diferido sin intereses (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_3b11e4e1c4642e47c728a07533884ae1'] = 'Crédito sin intereses (cte smax) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_756d9138fb90970002568d05c01631a1'] = 'Crédito especial sin intereses (smax) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_717ce83046fea95e1927e2cc30463d84'] = 'Prepago sin intereses (smax) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_fcdfdd97cfb51bb14d0fe9380d0b5d69'] = 'Crédito diferido sin intereses (dmax) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_16fd9168f7c02d26526f03d75a788c5d'] = 'Sin intereses con meses de gracia (Supermaxi) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_infos_b26fa41b09d5bc5431e8788601399902'] = ' %s es una solución completa para pagos en línea. Seguro, fácil y rápido.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_e636936569f9ab61b2b839b4ddfd6638'] = 'Revise sus artículos para pagar';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_3501f8b4b8e546c8a6db4ed32b641eb2'] = 'Modificar o eliminar elementos';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_62181d5a44e4366000f3c24fab48af3b'] = 'Tipos de Cuotas:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_c796a67ebd54a6aabc901d25a6618e08'] = 'Sin Cuotas';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_ecf417788592488bdb56becb90e59891'] = 'Error al generar LinkToPay, respuesta de la pasarela: ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_f8404b97bec82c39d288ab7f7158ec48'] = 'Se produjo un error al procesar su pago y no se pudo realizar. Pruebe con otra tarjeta.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_return_3dbbff638cc490e8f970adbc8cfd0e4b'] = 'Felicidades!';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_return_299a4f840f75d7d93a4237911f872406'] = 'Acaba de completar un pedido utilizando %s';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_return_dd4441f8ab7ce03064f7488692a52369'] = 'Tu identificador del pago es: %s';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_407c8b95b792682e45a1337e95957c30'] = ' Desarrollo';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_bc4daade475c3f1caac20993939462b2'] = ' Módulo de pago para procesar pagos con tarjeta.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_922dddfb62b1ac8c62a5230ca6b525da'] = '¿Está seguro de que desea desinstalar el módulo de pago de ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_c53522a8663101e6124a87e1606e655c'] = 'Valor de Configuración del Idioma del Checkout Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_56114bfdb02d5edbe3ff57f1fc45e94f'] = 'Valor de Configuración del App Code Client Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_428e56268213a9b0e165375300b8e4fb'] = 'Valor de Configuración del App Key Client Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_d79d75df4fd832f540b378f81cda5938'] = 'Valor de Configuración del App Code Server Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_f08fd3612bab2a60ac225352228459b3'] = 'Valor de Configuración del App Key Server Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_cd4d9c87e8ab6360729817948df9ef7d'] = 'Valor de Configuración del Idioma del Checkout Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_ffbdcd5cd2e0512c645b95a3b2c5577a'] = 'Debes Seleccionar al Menos un Método de Pago.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_6f473b17a25914838b1440e1362f79e0'] = 'Valor de Configuración de Días de Vencimiento del LinkToPay no Válido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_c888438d14855d7d96a2724ee9c306bd'] = 'Configuraciones actualizadas';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_7dd9a60402e8f1a5f404e28733be39a8'] = 'Configuraciones de la Pasarela de Pago: ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_06956dd27ad9f8ff76f7e43a8ec83a08'] = 'Entorno:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_69b9d9ab7d9604e0f97cabd8f4a229f4'] = 'Entorno de la Pasarela de Pago';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_0cbc6611f5540bd0809a388dc95a615b'] = 'Pruebas';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_756d97bb256b8580d4d71ee0c547804e'] = 'Producción';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_a18cf3e7431ec7798f19071b4f0c7263'] = 'Identificador único de comercio en ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_04a49fe0f0a08dc81d85bf84ad0bc1c3'] = 'Clave utilizada para cifrar la comunicación con ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_12d447c7aa2ce1f78452a8a632869b2c'] = 'Identificador único de comercio para realizar acciones administrativas en ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_3e97144d77181b0bc84d9495dea21b8f'] = 'Clave utilizada para cifrar la comunicación administrativa con ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_755a51775e315de4d9f8f5703c36d9d5'] = 'Idioma del Checkout:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_392c6a54aedea0e96a9d45b41bdd9456'] = 'Idioma preferido del usuario para la ventana de pago. Inglés se utilizará de forma predeterminada.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_169d2deb647664decd9f90143cd524b3'] = 'Habilitar pago con tarjeta:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_677db3140548319c40c0f2e3a7748e58'] = 'Si se selecciona, tarjeta se puede utilizar para pagar.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_d8dbf4082244fb93d30ae230fc8a5c89'] = 'Habilitar LinkToPay:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_407c8a6b97eccf51e3cf815910f8e03c'] = 'Si se selecciona, LinkToPay se puede utilizar para pagar.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_01a934287d6b0f340ccbf4d26f7b161a'] = 'Texto del Botón de Tarjeta:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_b5a2dddda6d19dc5ec8a5ea2d4464de2'] = 'Esto controla el texto que ve el usuario en el botón de pago con tarjeta. Pagar con Tarjeta se utiliza de forma predeterminada.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_52595c399fb21423e35b2850762a55bc'] = 'Texto del Botón LinkToPay:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_17b4f592d287709f16617726f2d32e89'] = 'Esto controla el texto que el usuario ve en el botón de pago de LinkToPay. Pagar con LinkToPay se utiliza de forma predeterminada.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_ec737946b1cfbf436d676c41f052dc7f'] = 'Días de Vencimiento de LinkToPay:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_1d8ac2fcd92a75579b4645b99e6d7bf8'] = 'Este valor controla la cantidad de días que él LinkToPay generado estará disponible para pagar.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_38de068e3c2f9ba1775b4dcb094fd135'] = 'Permitir Cuotas:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_8fba71149a61ab2cbd1a240eb56c2840'] = 'Si se selecciona, las opciones de cuotas se mostrarán en la pantalla de pago (Solo en pago con tarjeta).';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_c9cc8cce247e49bae79f15173ce97354'] = 'Guardar';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_630f6dc397fe74e52d5189e2c80f282b'] = 'Volver al Listado';
++$_MODULE['<{globalpay_payment}prestashop>payment_28ca29b3d10f2d64e2779f31463ba8d1'] = 'Revolvente y diferido sin intereses (El banco pagará al comercio la cuota, mes a mes) (Ecuador)';
++$_MODULE['<{globalpay_payment}prestashop>payment_75c08c3f31a513784fb6d32362477c45'] = 'Diferido con intereses (Ecuador, México)';
++$_MODULE['<{globalpay_payment}prestashop>payment_9f163b56bed9fb0ca55e1cb1475f0658'] = 'Diferido sin intereses (Ecuador, México)';
++$_MODULE['<{globalpay_payment}prestashop>payment_339dcb0da3a0d804a719e0a9f950cdc7'] = 'Diferido con intereses y meses de gracia (Ecuador)';
++$_MODULE['<{globalpay_payment}prestashop>payment_069804f47c7f37274146206047475e37'] = 'Pago diferido sin intereses mes a mes (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_2e7e54fbd71033ef6fd9571c355b2a46'] = 'Diferido sin intereses y meses de gracia (Ecuador, México)';
++$_MODULE['<{globalpay_payment}prestashop>payment_c392986693f61c84967d0807a38a142c'] = 'Promoción bimestral diferida sin intereses (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_d83cdd706fdf8af35d6c8e1b9eb76d58'] = 'Para Diners Club exclusivo, diferido con y sin interés (Ecuador)';
++$_MODULE['<{globalpay_payment}prestashop>payment_13e3c945b47f9e4d66ac5e5eb49a50be'] = 'Diferido con pago de intereses mes a mes (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_bcfa34ae07a627846ec7580f921be4e8'] = 'Promociones diferidas sin intereses (Supermaxi) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_f3afba533c8616347474bb8ef272c2a9'] = 'Diferido con intereses (Cuota fácil) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_c1e694b78cb8ec7a9b9a847a37d2aafb'] = 'Sin interés (Rendecion Produmillas) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_79ec97a34f35d4703bb4196f6303ab4b'] = 'Venta sin intereses con promociones (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_db190d2e5cd9d1dc6b126e43a2fa20ff'] = 'Especial diferido sin intereses (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_3b11e4e1c4642e47c728a07533884ae1'] = 'Crédito sin intereses (cte smax) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_756d9138fb90970002568d05c01631a1'] = 'Crédito especial sin intereses (smax) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_717ce83046fea95e1927e2cc30463d84'] = 'Prepago sin intereses (smax) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_fcdfdd97cfb51bb14d0fe9380d0b5d69'] = 'Crédito diferido sin intereses (dmax) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_16fd9168f7c02d26526f03d75a788c5d'] = 'Sin intereses con meses de gracia (Supermaxi) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_infos_b26fa41b09d5bc5431e8788601399902'] = ' %s es una solución completa para pagos en línea. Seguro, fácil y rápido.';
++$_MODULE['<{globalpay_payment}prestashop>payment_e636936569f9ab61b2b839b4ddfd6638'] = 'Revise sus artículos para pagar';
++$_MODULE['<{globalpay_payment}prestashop>payment_3501f8b4b8e546c8a6db4ed32b641eb2'] = 'Modificar o eliminar elementos';
++$_MODULE['<{globalpay_payment}prestashop>payment_62181d5a44e4366000f3c24fab48af3b'] = 'Tipos de Cuotas:';
++$_MODULE['<{globalpay_payment}prestashop>payment_c796a67ebd54a6aabc901d25a6618e08'] = 'Sin Cuotas';
++$_MODULE['<{globalpay_payment}prestashop>payment_ecf417788592488bdb56becb90e59891'] = 'Error al generar LinkToPay, respuesta de la pasarela: ';
++$_MODULE['<{globalpay_payment}prestashop>payment_f8404b97bec82c39d288ab7f7158ec48'] = 'Se produjo un error al procesar su pago y no se pudo realizar. Pruebe con otra tarjeta.';
++$_MODULE['<{globalpay_payment}prestashop>payment_return_3dbbff638cc490e8f970adbc8cfd0e4b'] = 'Felicidades!';
++$_MODULE['<{globalpay_payment}prestashop>payment_return_299a4f840f75d7d93a4237911f872406'] = 'Acaba de completar un pedido utilizando %s';
++$_MODULE['<{globalpay_payment}prestashop>payment_return_dd4441f8ab7ce03064f7488692a52369'] = 'Tu identificador del pago es: %s';
+diff --git a/translations/ec.php b/translations/ec.php
+index 86648f6..049cf10 100644
+--- a/translations/ec.php
++++ b/translations/ec.php
+@@ -2,69 +2,69 @@
+ 
+ global $_MODULE;
+ $_MODULE = array();
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_407c8b95b792682e45a1337e95957c30'] = ' Desarrollo';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_bc4daade475c3f1caac20993939462b2'] = ' Módulo de pago para procesar pagos con tarjeta.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_922dddfb62b1ac8c62a5230ca6b525da'] = '¿Está seguro de que desea desinstalar el módulo de pago de ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_c53522a8663101e6124a87e1606e655c'] = 'Valor de Configuración del Idioma del Checkout Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_56114bfdb02d5edbe3ff57f1fc45e94f'] = 'Valor de Configuración del App Code Client Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_428e56268213a9b0e165375300b8e4fb'] = 'Valor de Configuración del App Key Client Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_d79d75df4fd832f540b378f81cda5938'] = 'Valor de Configuración del App Code Server Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_f08fd3612bab2a60ac225352228459b3'] = 'Valor de Configuración del App Key Server Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_cd4d9c87e8ab6360729817948df9ef7d'] = 'Valor de Configuración del Idioma del Checkout Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_ffbdcd5cd2e0512c645b95a3b2c5577a'] = 'Debes Seleccionar al Menos un Método de Pago.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_6f473b17a25914838b1440e1362f79e0'] = 'Valor de Configuración de Días de Vencimiento del LinkToPay no Válido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_c888438d14855d7d96a2724ee9c306bd'] = 'Configuraciones actualizadas';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_7dd9a60402e8f1a5f404e28733be39a8'] = 'Configuraciones de la Pasarela de Pago: ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_06956dd27ad9f8ff76f7e43a8ec83a08'] = 'Entorno:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_69b9d9ab7d9604e0f97cabd8f4a229f4'] = 'Entorno de la Pasarela de Pago';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_0cbc6611f5540bd0809a388dc95a615b'] = 'Pruebas';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_756d97bb256b8580d4d71ee0c547804e'] = 'Producción';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_a18cf3e7431ec7798f19071b4f0c7263'] = 'Identificador único de comercio en ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_04a49fe0f0a08dc81d85bf84ad0bc1c3'] = 'Clave utilizada para cifrar la comunicación con ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_12d447c7aa2ce1f78452a8a632869b2c'] = 'Identificador único de comercio para realizar acciones administrativas en ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_3e97144d77181b0bc84d9495dea21b8f'] = 'Clave utilizada para cifrar la comunicación administrativa con ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_755a51775e315de4d9f8f5703c36d9d5'] = 'Idioma del Checkout:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_392c6a54aedea0e96a9d45b41bdd9456'] = 'Idioma preferido del usuario para la ventana de pago. Inglés se utilizará de forma predeterminada.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_169d2deb647664decd9f90143cd524b3'] = 'Habilitar pago con tarjeta:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_677db3140548319c40c0f2e3a7748e58'] = 'Si se selecciona, tarjeta se puede utilizar para pagar.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_d8dbf4082244fb93d30ae230fc8a5c89'] = 'Habilitar LinkToPay:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_407c8a6b97eccf51e3cf815910f8e03c'] = 'Si se selecciona, LinkToPay se puede utilizar para pagar.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_01a934287d6b0f340ccbf4d26f7b161a'] = 'Texto del Botón de Tarjeta:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_b5a2dddda6d19dc5ec8a5ea2d4464de2'] = 'Esto controla el texto que ve el usuario en el botón de pago con tarjeta. Pagar con Tarjeta se utiliza de forma predeterminada.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_52595c399fb21423e35b2850762a55bc'] = 'Texto del Botón LinkToPay:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_17b4f592d287709f16617726f2d32e89'] = 'Esto controla el texto que el usuario ve en el botón de pago de LinkToPay. Pagar con LinkToPay se utiliza de forma predeterminada.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_ec737946b1cfbf436d676c41f052dc7f'] = 'Días de Vencimiento de LinkToPay:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_1d8ac2fcd92a75579b4645b99e6d7bf8'] = 'Este valor controla la cantidad de días que él LinkToPay generado estará disponible para pagar.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_38de068e3c2f9ba1775b4dcb094fd135'] = 'Permitir Cuotas:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_8fba71149a61ab2cbd1a240eb56c2840'] = 'Si se selecciona, las opciones de cuotas se mostrarán en la pantalla de pago (Solo en pago con tarjeta).';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_c9cc8cce247e49bae79f15173ce97354'] = 'Guardar';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_630f6dc397fe74e52d5189e2c80f282b'] = 'Volver al Listado';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_28ca29b3d10f2d64e2779f31463ba8d1'] = 'Revolvente y diferido sin intereses (El banco pagará al comercio la cuota, mes a mes) (Ecuador)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_75c08c3f31a513784fb6d32362477c45'] = 'Diferido con intereses (Ecuador, México)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_9f163b56bed9fb0ca55e1cb1475f0658'] = 'Diferido sin intereses (Ecuador, México)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_339dcb0da3a0d804a719e0a9f950cdc7'] = 'Diferido con intereses y meses de gracia (Ecuador)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_069804f47c7f37274146206047475e37'] = 'Pago diferido sin intereses mes a mes (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_2e7e54fbd71033ef6fd9571c355b2a46'] = 'Diferido sin intereses y meses de gracia (Ecuador, México)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_c392986693f61c84967d0807a38a142c'] = 'Promoción bimestral diferida sin intereses (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_d83cdd706fdf8af35d6c8e1b9eb76d58'] = 'Para Diners Club exclusivo, diferido con y sin interés (Ecuador)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_13e3c945b47f9e4d66ac5e5eb49a50be'] = 'Diferido con pago de intereses mes a mes (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_bcfa34ae07a627846ec7580f921be4e8'] = 'Promociones diferidas sin intereses (Supermaxi) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_f3afba533c8616347474bb8ef272c2a9'] = 'Diferido con intereses (Cuota fácil) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_c1e694b78cb8ec7a9b9a847a37d2aafb'] = 'Sin interés (Rendecion Produmillas) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_79ec97a34f35d4703bb4196f6303ab4b'] = 'Venta sin intereses con promociones (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_db190d2e5cd9d1dc6b126e43a2fa20ff'] = 'Especial diferido sin intereses (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_3b11e4e1c4642e47c728a07533884ae1'] = 'Crédito sin intereses (cte smax) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_756d9138fb90970002568d05c01631a1'] = 'Crédito especial sin intereses (smax) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_717ce83046fea95e1927e2cc30463d84'] = 'Prepago sin intereses (smax) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_fcdfdd97cfb51bb14d0fe9380d0b5d69'] = 'Crédito diferido sin intereses (dmax) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_16fd9168f7c02d26526f03d75a788c5d'] = 'Sin intereses con meses de gracia (Supermaxi) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_infos_b26fa41b09d5bc5431e8788601399902'] = ' %s es una solución completa para pagos en línea. Seguro, fácil y rápido.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_e636936569f9ab61b2b839b4ddfd6638'] = 'Revise sus artículos para pagar';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_3501f8b4b8e546c8a6db4ed32b641eb2'] = 'Modificar o eliminar elementos';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_62181d5a44e4366000f3c24fab48af3b'] = 'Tipos de Cuotas:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_c796a67ebd54a6aabc901d25a6618e08'] = 'Sin Cuotas';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_ecf417788592488bdb56becb90e59891'] = 'Error al generar LinkToPay, respuesta de la pasarela: ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_f8404b97bec82c39d288ab7f7158ec48'] = 'Se produjo un error al procesar su pago y no se pudo realizar. Pruebe con otra tarjeta.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_return_3dbbff638cc490e8f970adbc8cfd0e4b'] = 'Felicidades!';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_return_299a4f840f75d7d93a4237911f872406'] = 'Acaba de completar un pedido utilizando %s';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_return_dd4441f8ab7ce03064f7488692a52369'] = 'Tu identificador del pago es: %s';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_407c8b95b792682e45a1337e95957c30'] = ' Desarrollo';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_bc4daade475c3f1caac20993939462b2'] = ' Módulo de pago para procesar pagos con tarjeta.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_922dddfb62b1ac8c62a5230ca6b525da'] = '¿Está seguro de que desea desinstalar el módulo de pago de ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_c53522a8663101e6124a87e1606e655c'] = 'Valor de Configuración del Idioma del Checkout Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_56114bfdb02d5edbe3ff57f1fc45e94f'] = 'Valor de Configuración del App Code Client Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_428e56268213a9b0e165375300b8e4fb'] = 'Valor de Configuración del App Key Client Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_d79d75df4fd832f540b378f81cda5938'] = 'Valor de Configuración del App Code Server Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_f08fd3612bab2a60ac225352228459b3'] = 'Valor de Configuración del App Key Server Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_cd4d9c87e8ab6360729817948df9ef7d'] = 'Valor de Configuración del Idioma del Checkout Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_ffbdcd5cd2e0512c645b95a3b2c5577a'] = 'Debes Seleccionar al Menos un Método de Pago.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_6f473b17a25914838b1440e1362f79e0'] = 'Valor de Configuración de Días de Vencimiento del LinkToPay no Válido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_c888438d14855d7d96a2724ee9c306bd'] = 'Configuraciones actualizadas';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_7dd9a60402e8f1a5f404e28733be39a8'] = 'Configuraciones de la Pasarela de Pago: ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_06956dd27ad9f8ff76f7e43a8ec83a08'] = 'Entorno:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_69b9d9ab7d9604e0f97cabd8f4a229f4'] = 'Entorno de la Pasarela de Pago';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_0cbc6611f5540bd0809a388dc95a615b'] = 'Pruebas';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_756d97bb256b8580d4d71ee0c547804e'] = 'Producción';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_a18cf3e7431ec7798f19071b4f0c7263'] = 'Identificador único de comercio en ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_04a49fe0f0a08dc81d85bf84ad0bc1c3'] = 'Clave utilizada para cifrar la comunicación con ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_12d447c7aa2ce1f78452a8a632869b2c'] = 'Identificador único de comercio para realizar acciones administrativas en ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_3e97144d77181b0bc84d9495dea21b8f'] = 'Clave utilizada para cifrar la comunicación administrativa con ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_755a51775e315de4d9f8f5703c36d9d5'] = 'Idioma del Checkout:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_392c6a54aedea0e96a9d45b41bdd9456'] = 'Idioma preferido del usuario para la ventana de pago. Inglés se utilizará de forma predeterminada.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_169d2deb647664decd9f90143cd524b3'] = 'Habilitar pago con tarjeta:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_677db3140548319c40c0f2e3a7748e58'] = 'Si se selecciona, tarjeta se puede utilizar para pagar.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_d8dbf4082244fb93d30ae230fc8a5c89'] = 'Habilitar LinkToPay:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_407c8a6b97eccf51e3cf815910f8e03c'] = 'Si se selecciona, LinkToPay se puede utilizar para pagar.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_01a934287d6b0f340ccbf4d26f7b161a'] = 'Texto del Botón de Tarjeta:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_b5a2dddda6d19dc5ec8a5ea2d4464de2'] = 'Esto controla el texto que ve el usuario en el botón de pago con tarjeta. Pagar con Tarjeta se utiliza de forma predeterminada.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_52595c399fb21423e35b2850762a55bc'] = 'Texto del Botón LinkToPay:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_17b4f592d287709f16617726f2d32e89'] = 'Esto controla el texto que el usuario ve en el botón de pago de LinkToPay. Pagar con LinkToPay se utiliza de forma predeterminada.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_ec737946b1cfbf436d676c41f052dc7f'] = 'Días de Vencimiento de LinkToPay:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_1d8ac2fcd92a75579b4645b99e6d7bf8'] = 'Este valor controla la cantidad de días que él LinkToPay generado estará disponible para pagar.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_38de068e3c2f9ba1775b4dcb094fd135'] = 'Permitir Cuotas:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_8fba71149a61ab2cbd1a240eb56c2840'] = 'Si se selecciona, las opciones de cuotas se mostrarán en la pantalla de pago (Solo en pago con tarjeta).';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_c9cc8cce247e49bae79f15173ce97354'] = 'Guardar';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_630f6dc397fe74e52d5189e2c80f282b'] = 'Volver al Listado';
++$_MODULE['<{globalpay_payment}prestashop>payment_28ca29b3d10f2d64e2779f31463ba8d1'] = 'Revolvente y diferido sin intereses (El banco pagará al comercio la cuota, mes a mes) (Ecuador)';
++$_MODULE['<{globalpay_payment}prestashop>payment_75c08c3f31a513784fb6d32362477c45'] = 'Diferido con intereses (Ecuador, México)';
++$_MODULE['<{globalpay_payment}prestashop>payment_9f163b56bed9fb0ca55e1cb1475f0658'] = 'Diferido sin intereses (Ecuador, México)';
++$_MODULE['<{globalpay_payment}prestashop>payment_339dcb0da3a0d804a719e0a9f950cdc7'] = 'Diferido con intereses y meses de gracia (Ecuador)';
++$_MODULE['<{globalpay_payment}prestashop>payment_069804f47c7f37274146206047475e37'] = 'Pago diferido sin intereses mes a mes (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_2e7e54fbd71033ef6fd9571c355b2a46'] = 'Diferido sin intereses y meses de gracia (Ecuador, México)';
++$_MODULE['<{globalpay_payment}prestashop>payment_c392986693f61c84967d0807a38a142c'] = 'Promoción bimestral diferida sin intereses (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_d83cdd706fdf8af35d6c8e1b9eb76d58'] = 'Para Diners Club exclusivo, diferido con y sin interés (Ecuador)';
++$_MODULE['<{globalpay_payment}prestashop>payment_13e3c945b47f9e4d66ac5e5eb49a50be'] = 'Diferido con pago de intereses mes a mes (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_bcfa34ae07a627846ec7580f921be4e8'] = 'Promociones diferidas sin intereses (Supermaxi) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_f3afba533c8616347474bb8ef272c2a9'] = 'Diferido con intereses (Cuota fácil) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_c1e694b78cb8ec7a9b9a847a37d2aafb'] = 'Sin interés (Rendecion Produmillas) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_79ec97a34f35d4703bb4196f6303ab4b'] = 'Venta sin intereses con promociones (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_db190d2e5cd9d1dc6b126e43a2fa20ff'] = 'Especial diferido sin intereses (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_3b11e4e1c4642e47c728a07533884ae1'] = 'Crédito sin intereses (cte smax) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_756d9138fb90970002568d05c01631a1'] = 'Crédito especial sin intereses (smax) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_717ce83046fea95e1927e2cc30463d84'] = 'Prepago sin intereses (smax) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_fcdfdd97cfb51bb14d0fe9380d0b5d69'] = 'Crédito diferido sin intereses (dmax) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_16fd9168f7c02d26526f03d75a788c5d'] = 'Sin intereses con meses de gracia (Supermaxi) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_infos_b26fa41b09d5bc5431e8788601399902'] = ' %s es una solución completa para pagos en línea. Seguro, fácil y rápido.';
++$_MODULE['<{globalpay_payment}prestashop>payment_e636936569f9ab61b2b839b4ddfd6638'] = 'Revise sus artículos para pagar';
++$_MODULE['<{globalpay_payment}prestashop>payment_3501f8b4b8e546c8a6db4ed32b641eb2'] = 'Modificar o eliminar elementos';
++$_MODULE['<{globalpay_payment}prestashop>payment_62181d5a44e4366000f3c24fab48af3b'] = 'Tipos de Cuotas:';
++$_MODULE['<{globalpay_payment}prestashop>payment_c796a67ebd54a6aabc901d25a6618e08'] = 'Sin Cuotas';
++$_MODULE['<{globalpay_payment}prestashop>payment_ecf417788592488bdb56becb90e59891'] = 'Error al generar LinkToPay, respuesta de la pasarela: ';
++$_MODULE['<{globalpay_payment}prestashop>payment_f8404b97bec82c39d288ab7f7158ec48'] = 'Se produjo un error al procesar su pago y no se pudo realizar. Pruebe con otra tarjeta.';
++$_MODULE['<{globalpay_payment}prestashop>payment_return_3dbbff638cc490e8f970adbc8cfd0e4b'] = 'Felicidades!';
++$_MODULE['<{globalpay_payment}prestashop>payment_return_299a4f840f75d7d93a4237911f872406'] = 'Acaba de completar un pedido utilizando %s';
++$_MODULE['<{globalpay_payment}prestashop>payment_return_dd4441f8ab7ce03064f7488692a52369'] = 'Tu identificador del pago es: %s';
+diff --git a/translations/es.php b/translations/es.php
+index 86648f6..049cf10 100644
+--- a/translations/es.php
++++ b/translations/es.php
+@@ -2,69 +2,69 @@
+ 
+ global $_MODULE;
+ $_MODULE = array();
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_407c8b95b792682e45a1337e95957c30'] = ' Desarrollo';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_bc4daade475c3f1caac20993939462b2'] = ' Módulo de pago para procesar pagos con tarjeta.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_922dddfb62b1ac8c62a5230ca6b525da'] = '¿Está seguro de que desea desinstalar el módulo de pago de ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_c53522a8663101e6124a87e1606e655c'] = 'Valor de Configuración del Idioma del Checkout Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_56114bfdb02d5edbe3ff57f1fc45e94f'] = 'Valor de Configuración del App Code Client Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_428e56268213a9b0e165375300b8e4fb'] = 'Valor de Configuración del App Key Client Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_d79d75df4fd832f540b378f81cda5938'] = 'Valor de Configuración del App Code Server Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_f08fd3612bab2a60ac225352228459b3'] = 'Valor de Configuración del App Key Server Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_cd4d9c87e8ab6360729817948df9ef7d'] = 'Valor de Configuración del Idioma del Checkout Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_ffbdcd5cd2e0512c645b95a3b2c5577a'] = 'Debes Seleccionar al Menos un Método de Pago.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_6f473b17a25914838b1440e1362f79e0'] = 'Valor de Configuración de Días de Vencimiento del LinkToPay no Válido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_c888438d14855d7d96a2724ee9c306bd'] = 'Configuraciones actualizadas';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_7dd9a60402e8f1a5f404e28733be39a8'] = 'Configuraciones de la Pasarela de Pago: ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_06956dd27ad9f8ff76f7e43a8ec83a08'] = 'Entorno:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_69b9d9ab7d9604e0f97cabd8f4a229f4'] = 'Entorno de la Pasarela de Pago';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_0cbc6611f5540bd0809a388dc95a615b'] = 'Pruebas';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_756d97bb256b8580d4d71ee0c547804e'] = 'Producción';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_a18cf3e7431ec7798f19071b4f0c7263'] = 'Identificador único de comercio en ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_04a49fe0f0a08dc81d85bf84ad0bc1c3'] = 'Clave utilizada para cifrar la comunicación con ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_12d447c7aa2ce1f78452a8a632869b2c'] = 'Identificador único de comercio para realizar acciones administrativas en ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_3e97144d77181b0bc84d9495dea21b8f'] = 'Clave utilizada para cifrar la comunicación administrativa con ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_755a51775e315de4d9f8f5703c36d9d5'] = 'Idioma del Checkout:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_392c6a54aedea0e96a9d45b41bdd9456'] = 'Idioma preferido del usuario para la ventana de pago. Inglés se utilizará de forma predeterminada.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_169d2deb647664decd9f90143cd524b3'] = 'Habilitar pago con tarjeta:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_677db3140548319c40c0f2e3a7748e58'] = 'Si se selecciona, tarjeta se puede utilizar para pagar.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_d8dbf4082244fb93d30ae230fc8a5c89'] = 'Habilitar LinkToPay:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_407c8a6b97eccf51e3cf815910f8e03c'] = 'Si se selecciona, LinkToPay se puede utilizar para pagar.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_01a934287d6b0f340ccbf4d26f7b161a'] = 'Texto del Botón de Tarjeta:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_b5a2dddda6d19dc5ec8a5ea2d4464de2'] = 'Esto controla el texto que ve el usuario en el botón de pago con tarjeta. Pagar con Tarjeta se utiliza de forma predeterminada.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_52595c399fb21423e35b2850762a55bc'] = 'Texto del Botón LinkToPay:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_17b4f592d287709f16617726f2d32e89'] = 'Esto controla el texto que el usuario ve en el botón de pago de LinkToPay. Pagar con LinkToPay se utiliza de forma predeterminada.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_ec737946b1cfbf436d676c41f052dc7f'] = 'Días de Vencimiento de LinkToPay:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_1d8ac2fcd92a75579b4645b99e6d7bf8'] = 'Este valor controla la cantidad de días que él LinkToPay generado estará disponible para pagar.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_38de068e3c2f9ba1775b4dcb094fd135'] = 'Permitir Cuotas:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_8fba71149a61ab2cbd1a240eb56c2840'] = 'Si se selecciona, las opciones de cuotas se mostrarán en la pantalla de pago (Solo en pago con tarjeta).';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_c9cc8cce247e49bae79f15173ce97354'] = 'Guardar';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_630f6dc397fe74e52d5189e2c80f282b'] = 'Volver al Listado';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_28ca29b3d10f2d64e2779f31463ba8d1'] = 'Revolvente y diferido sin intereses (El banco pagará al comercio la cuota, mes a mes) (Ecuador)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_75c08c3f31a513784fb6d32362477c45'] = 'Diferido con intereses (Ecuador, México)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_9f163b56bed9fb0ca55e1cb1475f0658'] = 'Diferido sin intereses (Ecuador, México)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_339dcb0da3a0d804a719e0a9f950cdc7'] = 'Diferido con intereses y meses de gracia (Ecuador)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_069804f47c7f37274146206047475e37'] = 'Pago diferido sin intereses mes a mes (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_2e7e54fbd71033ef6fd9571c355b2a46'] = 'Diferido sin intereses y meses de gracia (Ecuador, México)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_c392986693f61c84967d0807a38a142c'] = 'Promoción bimestral diferida sin intereses (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_d83cdd706fdf8af35d6c8e1b9eb76d58'] = 'Para Diners Club exclusivo, diferido con y sin interés (Ecuador)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_13e3c945b47f9e4d66ac5e5eb49a50be'] = 'Diferido con pago de intereses mes a mes (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_bcfa34ae07a627846ec7580f921be4e8'] = 'Promociones diferidas sin intereses (Supermaxi) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_f3afba533c8616347474bb8ef272c2a9'] = 'Diferido con intereses (Cuota fácil) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_c1e694b78cb8ec7a9b9a847a37d2aafb'] = 'Sin interés (Rendecion Produmillas) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_79ec97a34f35d4703bb4196f6303ab4b'] = 'Venta sin intereses con promociones (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_db190d2e5cd9d1dc6b126e43a2fa20ff'] = 'Especial diferido sin intereses (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_3b11e4e1c4642e47c728a07533884ae1'] = 'Crédito sin intereses (cte smax) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_756d9138fb90970002568d05c01631a1'] = 'Crédito especial sin intereses (smax) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_717ce83046fea95e1927e2cc30463d84'] = 'Prepago sin intereses (smax) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_fcdfdd97cfb51bb14d0fe9380d0b5d69'] = 'Crédito diferido sin intereses (dmax) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_16fd9168f7c02d26526f03d75a788c5d'] = 'Sin intereses con meses de gracia (Supermaxi) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_infos_b26fa41b09d5bc5431e8788601399902'] = ' %s es una solución completa para pagos en línea. Seguro, fácil y rápido.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_e636936569f9ab61b2b839b4ddfd6638'] = 'Revise sus artículos para pagar';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_3501f8b4b8e546c8a6db4ed32b641eb2'] = 'Modificar o eliminar elementos';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_62181d5a44e4366000f3c24fab48af3b'] = 'Tipos de Cuotas:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_c796a67ebd54a6aabc901d25a6618e08'] = 'Sin Cuotas';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_ecf417788592488bdb56becb90e59891'] = 'Error al generar LinkToPay, respuesta de la pasarela: ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_f8404b97bec82c39d288ab7f7158ec48'] = 'Se produjo un error al procesar su pago y no se pudo realizar. Pruebe con otra tarjeta.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_return_3dbbff638cc490e8f970adbc8cfd0e4b'] = 'Felicidades!';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_return_299a4f840f75d7d93a4237911f872406'] = 'Acaba de completar un pedido utilizando %s';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_return_dd4441f8ab7ce03064f7488692a52369'] = 'Tu identificador del pago es: %s';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_407c8b95b792682e45a1337e95957c30'] = ' Desarrollo';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_bc4daade475c3f1caac20993939462b2'] = ' Módulo de pago para procesar pagos con tarjeta.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_922dddfb62b1ac8c62a5230ca6b525da'] = '¿Está seguro de que desea desinstalar el módulo de pago de ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_c53522a8663101e6124a87e1606e655c'] = 'Valor de Configuración del Idioma del Checkout Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_56114bfdb02d5edbe3ff57f1fc45e94f'] = 'Valor de Configuración del App Code Client Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_428e56268213a9b0e165375300b8e4fb'] = 'Valor de Configuración del App Key Client Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_d79d75df4fd832f540b378f81cda5938'] = 'Valor de Configuración del App Code Server Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_f08fd3612bab2a60ac225352228459b3'] = 'Valor de Configuración del App Key Server Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_cd4d9c87e8ab6360729817948df9ef7d'] = 'Valor de Configuración del Idioma del Checkout Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_ffbdcd5cd2e0512c645b95a3b2c5577a'] = 'Debes Seleccionar al Menos un Método de Pago.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_6f473b17a25914838b1440e1362f79e0'] = 'Valor de Configuración de Días de Vencimiento del LinkToPay no Válido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_c888438d14855d7d96a2724ee9c306bd'] = 'Configuraciones actualizadas';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_7dd9a60402e8f1a5f404e28733be39a8'] = 'Configuraciones de la Pasarela de Pago: ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_06956dd27ad9f8ff76f7e43a8ec83a08'] = 'Entorno:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_69b9d9ab7d9604e0f97cabd8f4a229f4'] = 'Entorno de la Pasarela de Pago';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_0cbc6611f5540bd0809a388dc95a615b'] = 'Pruebas';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_756d97bb256b8580d4d71ee0c547804e'] = 'Producción';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_a18cf3e7431ec7798f19071b4f0c7263'] = 'Identificador único de comercio en ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_04a49fe0f0a08dc81d85bf84ad0bc1c3'] = 'Clave utilizada para cifrar la comunicación con ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_12d447c7aa2ce1f78452a8a632869b2c'] = 'Identificador único de comercio para realizar acciones administrativas en ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_3e97144d77181b0bc84d9495dea21b8f'] = 'Clave utilizada para cifrar la comunicación administrativa con ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_755a51775e315de4d9f8f5703c36d9d5'] = 'Idioma del Checkout:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_392c6a54aedea0e96a9d45b41bdd9456'] = 'Idioma preferido del usuario para la ventana de pago. Inglés se utilizará de forma predeterminada.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_169d2deb647664decd9f90143cd524b3'] = 'Habilitar pago con tarjeta:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_677db3140548319c40c0f2e3a7748e58'] = 'Si se selecciona, tarjeta se puede utilizar para pagar.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_d8dbf4082244fb93d30ae230fc8a5c89'] = 'Habilitar LinkToPay:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_407c8a6b97eccf51e3cf815910f8e03c'] = 'Si se selecciona, LinkToPay se puede utilizar para pagar.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_01a934287d6b0f340ccbf4d26f7b161a'] = 'Texto del Botón de Tarjeta:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_b5a2dddda6d19dc5ec8a5ea2d4464de2'] = 'Esto controla el texto que ve el usuario en el botón de pago con tarjeta. Pagar con Tarjeta se utiliza de forma predeterminada.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_52595c399fb21423e35b2850762a55bc'] = 'Texto del Botón LinkToPay:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_17b4f592d287709f16617726f2d32e89'] = 'Esto controla el texto que el usuario ve en el botón de pago de LinkToPay. Pagar con LinkToPay se utiliza de forma predeterminada.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_ec737946b1cfbf436d676c41f052dc7f'] = 'Días de Vencimiento de LinkToPay:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_1d8ac2fcd92a75579b4645b99e6d7bf8'] = 'Este valor controla la cantidad de días que él LinkToPay generado estará disponible para pagar.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_38de068e3c2f9ba1775b4dcb094fd135'] = 'Permitir Cuotas:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_8fba71149a61ab2cbd1a240eb56c2840'] = 'Si se selecciona, las opciones de cuotas se mostrarán en la pantalla de pago (Solo en pago con tarjeta).';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_c9cc8cce247e49bae79f15173ce97354'] = 'Guardar';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_630f6dc397fe74e52d5189e2c80f282b'] = 'Volver al Listado';
++$_MODULE['<{globalpay_payment}prestashop>payment_28ca29b3d10f2d64e2779f31463ba8d1'] = 'Revolvente y diferido sin intereses (El banco pagará al comercio la cuota, mes a mes) (Ecuador)';
++$_MODULE['<{globalpay_payment}prestashop>payment_75c08c3f31a513784fb6d32362477c45'] = 'Diferido con intereses (Ecuador, México)';
++$_MODULE['<{globalpay_payment}prestashop>payment_9f163b56bed9fb0ca55e1cb1475f0658'] = 'Diferido sin intereses (Ecuador, México)';
++$_MODULE['<{globalpay_payment}prestashop>payment_339dcb0da3a0d804a719e0a9f950cdc7'] = 'Diferido con intereses y meses de gracia (Ecuador)';
++$_MODULE['<{globalpay_payment}prestashop>payment_069804f47c7f37274146206047475e37'] = 'Pago diferido sin intereses mes a mes (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_2e7e54fbd71033ef6fd9571c355b2a46'] = 'Diferido sin intereses y meses de gracia (Ecuador, México)';
++$_MODULE['<{globalpay_payment}prestashop>payment_c392986693f61c84967d0807a38a142c'] = 'Promoción bimestral diferida sin intereses (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_d83cdd706fdf8af35d6c8e1b9eb76d58'] = 'Para Diners Club exclusivo, diferido con y sin interés (Ecuador)';
++$_MODULE['<{globalpay_payment}prestashop>payment_13e3c945b47f9e4d66ac5e5eb49a50be'] = 'Diferido con pago de intereses mes a mes (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_bcfa34ae07a627846ec7580f921be4e8'] = 'Promociones diferidas sin intereses (Supermaxi) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_f3afba533c8616347474bb8ef272c2a9'] = 'Diferido con intereses (Cuota fácil) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_c1e694b78cb8ec7a9b9a847a37d2aafb'] = 'Sin interés (Rendecion Produmillas) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_79ec97a34f35d4703bb4196f6303ab4b'] = 'Venta sin intereses con promociones (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_db190d2e5cd9d1dc6b126e43a2fa20ff'] = 'Especial diferido sin intereses (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_3b11e4e1c4642e47c728a07533884ae1'] = 'Crédito sin intereses (cte smax) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_756d9138fb90970002568d05c01631a1'] = 'Crédito especial sin intereses (smax) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_717ce83046fea95e1927e2cc30463d84'] = 'Prepago sin intereses (smax) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_fcdfdd97cfb51bb14d0fe9380d0b5d69'] = 'Crédito diferido sin intereses (dmax) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_16fd9168f7c02d26526f03d75a788c5d'] = 'Sin intereses con meses de gracia (Supermaxi) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_infos_b26fa41b09d5bc5431e8788601399902'] = ' %s es una solución completa para pagos en línea. Seguro, fácil y rápido.';
++$_MODULE['<{globalpay_payment}prestashop>payment_e636936569f9ab61b2b839b4ddfd6638'] = 'Revise sus artículos para pagar';
++$_MODULE['<{globalpay_payment}prestashop>payment_3501f8b4b8e546c8a6db4ed32b641eb2'] = 'Modificar o eliminar elementos';
++$_MODULE['<{globalpay_payment}prestashop>payment_62181d5a44e4366000f3c24fab48af3b'] = 'Tipos de Cuotas:';
++$_MODULE['<{globalpay_payment}prestashop>payment_c796a67ebd54a6aabc901d25a6618e08'] = 'Sin Cuotas';
++$_MODULE['<{globalpay_payment}prestashop>payment_ecf417788592488bdb56becb90e59891'] = 'Error al generar LinkToPay, respuesta de la pasarela: ';
++$_MODULE['<{globalpay_payment}prestashop>payment_f8404b97bec82c39d288ab7f7158ec48'] = 'Se produjo un error al procesar su pago y no se pudo realizar. Pruebe con otra tarjeta.';
++$_MODULE['<{globalpay_payment}prestashop>payment_return_3dbbff638cc490e8f970adbc8cfd0e4b'] = 'Felicidades!';
++$_MODULE['<{globalpay_payment}prestashop>payment_return_299a4f840f75d7d93a4237911f872406'] = 'Acaba de completar un pedido utilizando %s';
++$_MODULE['<{globalpay_payment}prestashop>payment_return_dd4441f8ab7ce03064f7488692a52369'] = 'Tu identificador del pago es: %s';
+diff --git a/translations/mx.php b/translations/mx.php
+index 86648f6..049cf10 100644
+--- a/translations/mx.php
++++ b/translations/mx.php
+@@ -2,69 +2,69 @@
+ 
+ global $_MODULE;
+ $_MODULE = array();
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_407c8b95b792682e45a1337e95957c30'] = ' Desarrollo';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_bc4daade475c3f1caac20993939462b2'] = ' Módulo de pago para procesar pagos con tarjeta.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_922dddfb62b1ac8c62a5230ca6b525da'] = '¿Está seguro de que desea desinstalar el módulo de pago de ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_c53522a8663101e6124a87e1606e655c'] = 'Valor de Configuración del Idioma del Checkout Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_56114bfdb02d5edbe3ff57f1fc45e94f'] = 'Valor de Configuración del App Code Client Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_428e56268213a9b0e165375300b8e4fb'] = 'Valor de Configuración del App Key Client Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_d79d75df4fd832f540b378f81cda5938'] = 'Valor de Configuración del App Code Server Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_f08fd3612bab2a60ac225352228459b3'] = 'Valor de Configuración del App Key Server Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_cd4d9c87e8ab6360729817948df9ef7d'] = 'Valor de Configuración del Idioma del Checkout Inválido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_ffbdcd5cd2e0512c645b95a3b2c5577a'] = 'Debes Seleccionar al Menos un Método de Pago.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_6f473b17a25914838b1440e1362f79e0'] = 'Valor de Configuración de Días de Vencimiento del LinkToPay no Válido';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_c888438d14855d7d96a2724ee9c306bd'] = 'Configuraciones actualizadas';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_7dd9a60402e8f1a5f404e28733be39a8'] = 'Configuraciones de la Pasarela de Pago: ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_06956dd27ad9f8ff76f7e43a8ec83a08'] = 'Entorno:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_69b9d9ab7d9604e0f97cabd8f4a229f4'] = 'Entorno de la Pasarela de Pago';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_0cbc6611f5540bd0809a388dc95a615b'] = 'Pruebas';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_756d97bb256b8580d4d71ee0c547804e'] = 'Producción';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_a18cf3e7431ec7798f19071b4f0c7263'] = 'Identificador único de comercio en ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_04a49fe0f0a08dc81d85bf84ad0bc1c3'] = 'Clave utilizada para cifrar la comunicación con ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_12d447c7aa2ce1f78452a8a632869b2c'] = 'Identificador único de comercio para realizar acciones administrativas en ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_3e97144d77181b0bc84d9495dea21b8f'] = 'Clave utilizada para cifrar la comunicación administrativa con ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_755a51775e315de4d9f8f5703c36d9d5'] = 'Idioma del Checkout:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_392c6a54aedea0e96a9d45b41bdd9456'] = 'Idioma preferido del usuario para la ventana de pago. Inglés se utilizará de forma predeterminada.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_169d2deb647664decd9f90143cd524b3'] = 'Habilitar pago con tarjeta:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_677db3140548319c40c0f2e3a7748e58'] = 'Si se selecciona, tarjeta se puede utilizar para pagar.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_d8dbf4082244fb93d30ae230fc8a5c89'] = 'Habilitar LinkToPay:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_407c8a6b97eccf51e3cf815910f8e03c'] = 'Si se selecciona, LinkToPay se puede utilizar para pagar.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_01a934287d6b0f340ccbf4d26f7b161a'] = 'Texto del Botón de Tarjeta:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_b5a2dddda6d19dc5ec8a5ea2d4464de2'] = 'Esto controla el texto que ve el usuario en el botón de pago con tarjeta. Pagar con Tarjeta se utiliza de forma predeterminada.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_52595c399fb21423e35b2850762a55bc'] = 'Texto del Botón LinkToPay:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_17b4f592d287709f16617726f2d32e89'] = 'Esto controla el texto que el usuario ve en el botón de pago de LinkToPay. Pagar con LinkToPay se utiliza de forma predeterminada.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_ec737946b1cfbf436d676c41f052dc7f'] = 'Días de Vencimiento de LinkToPay:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_1d8ac2fcd92a75579b4645b99e6d7bf8'] = 'Este valor controla la cantidad de días que él LinkToPay generado estará disponible para pagar.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_38de068e3c2f9ba1775b4dcb094fd135'] = 'Permitir Cuotas:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_8fba71149a61ab2cbd1a240eb56c2840'] = 'Si se selecciona, las opciones de cuotas se mostrarán en la pantalla de pago (Solo en pago con tarjeta).';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_c9cc8cce247e49bae79f15173ce97354'] = 'Guardar';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>pg_prestashop_plugin_630f6dc397fe74e52d5189e2c80f282b'] = 'Volver al Listado';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_28ca29b3d10f2d64e2779f31463ba8d1'] = 'Revolvente y diferido sin intereses (El banco pagará al comercio la cuota, mes a mes) (Ecuador)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_75c08c3f31a513784fb6d32362477c45'] = 'Diferido con intereses (Ecuador, México)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_9f163b56bed9fb0ca55e1cb1475f0658'] = 'Diferido sin intereses (Ecuador, México)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_339dcb0da3a0d804a719e0a9f950cdc7'] = 'Diferido con intereses y meses de gracia (Ecuador)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_069804f47c7f37274146206047475e37'] = 'Pago diferido sin intereses mes a mes (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_2e7e54fbd71033ef6fd9571c355b2a46'] = 'Diferido sin intereses y meses de gracia (Ecuador, México)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_c392986693f61c84967d0807a38a142c'] = 'Promoción bimestral diferida sin intereses (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_d83cdd706fdf8af35d6c8e1b9eb76d58'] = 'Para Diners Club exclusivo, diferido con y sin interés (Ecuador)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_13e3c945b47f9e4d66ac5e5eb49a50be'] = 'Diferido con pago de intereses mes a mes (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_bcfa34ae07a627846ec7580f921be4e8'] = 'Promociones diferidas sin intereses (Supermaxi) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_f3afba533c8616347474bb8ef272c2a9'] = 'Diferido con intereses (Cuota fácil) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_c1e694b78cb8ec7a9b9a847a37d2aafb'] = 'Sin interés (Rendecion Produmillas) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_79ec97a34f35d4703bb4196f6303ab4b'] = 'Venta sin intereses con promociones (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_db190d2e5cd9d1dc6b126e43a2fa20ff'] = 'Especial diferido sin intereses (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_3b11e4e1c4642e47c728a07533884ae1'] = 'Crédito sin intereses (cte smax) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_756d9138fb90970002568d05c01631a1'] = 'Crédito especial sin intereses (smax) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_717ce83046fea95e1927e2cc30463d84'] = 'Prepago sin intereses (smax) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_fcdfdd97cfb51bb14d0fe9380d0b5d69'] = 'Crédito diferido sin intereses (dmax) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_16fd9168f7c02d26526f03d75a788c5d'] = 'Sin intereses con meses de gracia (Supermaxi) (Ecuador) (Medianet)';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_infos_b26fa41b09d5bc5431e8788601399902'] = ' %s es una solución completa para pagos en línea. Seguro, fácil y rápido.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_e636936569f9ab61b2b839b4ddfd6638'] = 'Revise sus artículos para pagar';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_3501f8b4b8e546c8a6db4ed32b641eb2'] = 'Modificar o eliminar elementos';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_62181d5a44e4366000f3c24fab48af3b'] = 'Tipos de Cuotas:';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_c796a67ebd54a6aabc901d25a6618e08'] = 'Sin Cuotas';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_ecf417788592488bdb56becb90e59891'] = 'Error al generar LinkToPay, respuesta de la pasarela: ';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_f8404b97bec82c39d288ab7f7158ec48'] = 'Se produjo un error al procesar su pago y no se pudo realizar. Pruebe con otra tarjeta.';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_return_3dbbff638cc490e8f970adbc8cfd0e4b'] = 'Felicidades!';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_return_299a4f840f75d7d93a4237911f872406'] = 'Acaba de completar un pedido utilizando %s';
+-$_MODULE['<{pg_prestashop_plugin}prestashop>payment_return_dd4441f8ab7ce03064f7488692a52369'] = 'Tu identificador del pago es: %s';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_407c8b95b792682e45a1337e95957c30'] = ' Desarrollo';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_bc4daade475c3f1caac20993939462b2'] = ' Módulo de pago para procesar pagos con tarjeta.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_922dddfb62b1ac8c62a5230ca6b525da'] = '¿Está seguro de que desea desinstalar el módulo de pago de ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_c53522a8663101e6124a87e1606e655c'] = 'Valor de Configuración del Idioma del Checkout Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_56114bfdb02d5edbe3ff57f1fc45e94f'] = 'Valor de Configuración del App Code Client Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_428e56268213a9b0e165375300b8e4fb'] = 'Valor de Configuración del App Key Client Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_d79d75df4fd832f540b378f81cda5938'] = 'Valor de Configuración del App Code Server Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_f08fd3612bab2a60ac225352228459b3'] = 'Valor de Configuración del App Key Server Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_cd4d9c87e8ab6360729817948df9ef7d'] = 'Valor de Configuración del Idioma del Checkout Inválido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_ffbdcd5cd2e0512c645b95a3b2c5577a'] = 'Debes Seleccionar al Menos un Método de Pago.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_6f473b17a25914838b1440e1362f79e0'] = 'Valor de Configuración de Días de Vencimiento del LinkToPay no Válido';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_c888438d14855d7d96a2724ee9c306bd'] = 'Configuraciones actualizadas';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_7dd9a60402e8f1a5f404e28733be39a8'] = 'Configuraciones de la Pasarela de Pago: ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_06956dd27ad9f8ff76f7e43a8ec83a08'] = 'Entorno:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_69b9d9ab7d9604e0f97cabd8f4a229f4'] = 'Entorno de la Pasarela de Pago';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_0cbc6611f5540bd0809a388dc95a615b'] = 'Pruebas';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_756d97bb256b8580d4d71ee0c547804e'] = 'Producción';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_a18cf3e7431ec7798f19071b4f0c7263'] = 'Identificador único de comercio en ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_04a49fe0f0a08dc81d85bf84ad0bc1c3'] = 'Clave utilizada para cifrar la comunicación con ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_12d447c7aa2ce1f78452a8a632869b2c'] = 'Identificador único de comercio para realizar acciones administrativas en ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_3e97144d77181b0bc84d9495dea21b8f'] = 'Clave utilizada para cifrar la comunicación administrativa con ';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_755a51775e315de4d9f8f5703c36d9d5'] = 'Idioma del Checkout:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_392c6a54aedea0e96a9d45b41bdd9456'] = 'Idioma preferido del usuario para la ventana de pago. Inglés se utilizará de forma predeterminada.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_169d2deb647664decd9f90143cd524b3'] = 'Habilitar pago con tarjeta:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_677db3140548319c40c0f2e3a7748e58'] = 'Si se selecciona, tarjeta se puede utilizar para pagar.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_d8dbf4082244fb93d30ae230fc8a5c89'] = 'Habilitar LinkToPay:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_407c8a6b97eccf51e3cf815910f8e03c'] = 'Si se selecciona, LinkToPay se puede utilizar para pagar.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_01a934287d6b0f340ccbf4d26f7b161a'] = 'Texto del Botón de Tarjeta:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_b5a2dddda6d19dc5ec8a5ea2d4464de2'] = 'Esto controla el texto que ve el usuario en el botón de pago con tarjeta. Pagar con Tarjeta se utiliza de forma predeterminada.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_52595c399fb21423e35b2850762a55bc'] = 'Texto del Botón LinkToPay:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_17b4f592d287709f16617726f2d32e89'] = 'Esto controla el texto que el usuario ve en el botón de pago de LinkToPay. Pagar con LinkToPay se utiliza de forma predeterminada.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_ec737946b1cfbf436d676c41f052dc7f'] = 'Días de Vencimiento de LinkToPay:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_1d8ac2fcd92a75579b4645b99e6d7bf8'] = 'Este valor controla la cantidad de días que él LinkToPay generado estará disponible para pagar.';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_38de068e3c2f9ba1775b4dcb094fd135'] = 'Permitir Cuotas:';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_8fba71149a61ab2cbd1a240eb56c2840'] = 'Si se selecciona, las opciones de cuotas se mostrarán en la pantalla de pago (Solo en pago con tarjeta).';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_c9cc8cce247e49bae79f15173ce97354'] = 'Guardar';
++$_MODULE['<{globalpay_payment}prestashop>globalpay_payment_630f6dc397fe74e52d5189e2c80f282b'] = 'Volver al Listado';
++$_MODULE['<{globalpay_payment}prestashop>payment_28ca29b3d10f2d64e2779f31463ba8d1'] = 'Revolvente y diferido sin intereses (El banco pagará al comercio la cuota, mes a mes) (Ecuador)';
++$_MODULE['<{globalpay_payment}prestashop>payment_75c08c3f31a513784fb6d32362477c45'] = 'Diferido con intereses (Ecuador, México)';
++$_MODULE['<{globalpay_payment}prestashop>payment_9f163b56bed9fb0ca55e1cb1475f0658'] = 'Diferido sin intereses (Ecuador, México)';
++$_MODULE['<{globalpay_payment}prestashop>payment_339dcb0da3a0d804a719e0a9f950cdc7'] = 'Diferido con intereses y meses de gracia (Ecuador)';
++$_MODULE['<{globalpay_payment}prestashop>payment_069804f47c7f37274146206047475e37'] = 'Pago diferido sin intereses mes a mes (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_2e7e54fbd71033ef6fd9571c355b2a46'] = 'Diferido sin intereses y meses de gracia (Ecuador, México)';
++$_MODULE['<{globalpay_payment}prestashop>payment_c392986693f61c84967d0807a38a142c'] = 'Promoción bimestral diferida sin intereses (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_d83cdd706fdf8af35d6c8e1b9eb76d58'] = 'Para Diners Club exclusivo, diferido con y sin interés (Ecuador)';
++$_MODULE['<{globalpay_payment}prestashop>payment_13e3c945b47f9e4d66ac5e5eb49a50be'] = 'Diferido con pago de intereses mes a mes (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_bcfa34ae07a627846ec7580f921be4e8'] = 'Promociones diferidas sin intereses (Supermaxi) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_f3afba533c8616347474bb8ef272c2a9'] = 'Diferido con intereses (Cuota fácil) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_c1e694b78cb8ec7a9b9a847a37d2aafb'] = 'Sin interés (Rendecion Produmillas) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_79ec97a34f35d4703bb4196f6303ab4b'] = 'Venta sin intereses con promociones (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_db190d2e5cd9d1dc6b126e43a2fa20ff'] = 'Especial diferido sin intereses (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_3b11e4e1c4642e47c728a07533884ae1'] = 'Crédito sin intereses (cte smax) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_756d9138fb90970002568d05c01631a1'] = 'Crédito especial sin intereses (smax) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_717ce83046fea95e1927e2cc30463d84'] = 'Prepago sin intereses (smax) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_fcdfdd97cfb51bb14d0fe9380d0b5d69'] = 'Crédito diferido sin intereses (dmax) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_16fd9168f7c02d26526f03d75a788c5d'] = 'Sin intereses con meses de gracia (Supermaxi) (Ecuador) (Medianet)';
++$_MODULE['<{globalpay_payment}prestashop>payment_infos_b26fa41b09d5bc5431e8788601399902'] = ' %s es una solución completa para pagos en línea. Seguro, fácil y rápido.';
++$_MODULE['<{globalpay_payment}prestashop>payment_e636936569f9ab61b2b839b4ddfd6638'] = 'Revise sus artículos para pagar';
++$_MODULE['<{globalpay_payment}prestashop>payment_3501f8b4b8e546c8a6db4ed32b641eb2'] = 'Modificar o eliminar elementos';
++$_MODULE['<{globalpay_payment}prestashop>payment_62181d5a44e4366000f3c24fab48af3b'] = 'Tipos de Cuotas:';
++$_MODULE['<{globalpay_payment}prestashop>payment_c796a67ebd54a6aabc901d25a6618e08'] = 'Sin Cuotas';
++$_MODULE['<{globalpay_payment}prestashop>payment_ecf417788592488bdb56becb90e59891'] = 'Error al generar LinkToPay, respuesta de la pasarela: ';
++$_MODULE['<{globalpay_payment}prestashop>payment_f8404b97bec82c39d288ab7f7158ec48'] = 'Se produjo un error al procesar su pago y no se pudo realizar. Pruebe con otra tarjeta.';
++$_MODULE['<{globalpay_payment}prestashop>payment_return_3dbbff638cc490e8f970adbc8cfd0e4b'] = 'Felicidades!';
++$_MODULE['<{globalpay_payment}prestashop>payment_return_299a4f840f75d7d93a4237911f872406'] = 'Acaba de completar un pedido utilizando %s';
++$_MODULE['<{globalpay_payment}prestashop>payment_return_dd4441f8ab7ce03064f7488692a52369'] = 'Tu identificador del pago es: %s';
+diff --git a/views/css/main.css b/views/css/main.css
+index b6c4b4c..6442147 100644
+--- a/views/css/main.css
++++ b/views/css/main.css
+@@ -15,6 +15,12 @@
+ .payment-checkout-description span {
+   background-color: #ffffffc9;
+ }
++
++.payment-checkout .payment-checkout-img {
++  width: 80% !important;
++  height: auto;
++  display: block;
++}
+ @media (max-width: 575px) {
+   .payment-checkout {
+     background: linear-gradient(rgb(255 255 255), rgb(255 255 255 / 65%)),
+@@ -46,7 +52,10 @@
+   letter-spacing: 2px;
+   font-weight: 500;
+   cursor: pointer;
+-  float: left;
++  float: none;
++  display: block;
++  width: 100%;
++  margin-bottom: 1em;
+ }
+ 
+ .ltp-button {
+@@ -56,5 +65,9 @@
+   letter-spacing: 2px;
+   font-weight: 500;
+   cursor: pointer;
+-  float: left;
++  float: none;
++  display: block;
++  width: 100%;
++  margin-top: 1em;
++  margin-bottom: 1em;
+ }
+diff --git a/views/templates/front/payment.tpl b/views/templates/front/payment.tpl
+index eba9229..1541e74 100644
+--- a/views/templates/front/payment.tpl
++++ b/views/templates/front/payment.tpl
+@@ -1,15 +1,12 @@
+ {extends "$layout"}
+ {block name="content"}
+-    <link rel="stylesheet" href="{$urls.base_url}/modules/pg_prestashop_plugin/views/css/main.css">
+-    <script src="https://cdn.globalpay.com.co/ccapi/sdk/payment_checkout_stable.min.js"></script>
+-    <script src="https://code.jquery.com/jquery-1.7.1.min.js" type="text/javascript"></script>
+-    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/3.1.9-1/crypto-js.js"></script></head>
++    <script src="https://cdn.globalpay.com.co/ccapi/sdk/payment_checkout_3.0.0.min.js"></script>
+ 
+     <div class="row">
+         <div class="payment-title col-sm-7 col-lg-9">
+             <h3 class="text-xs-center text-md-left">
+                 <span>
+-                    {l s='Review your items to checkout' mod='pg_prestashop_plugin'}
++                    {l s='Review your items to checkout' mod='globalpay_payment'}
+                 </span>
+             </h3>
+         </div>
+@@ -29,7 +26,7 @@
+                     </span><br>
+                         {/if}
+                         <span class="item-price">
+-                        <span class="text-primary">{Tools::displayPrice($product.price_wt)}</span> - <span
++                        <span class="text-primary">{$product.price_wt|escape:'html':'UTF-8'}</span> - <span
+                                     class="text-muted">Cantidad:
+                             {$product.quantity}</span>
+                     </span><br>
+@@ -44,7 +41,7 @@
+             <p class="payment-modify text-xs-center text-md-left">
+                 <a href="{$urls.pages.cart}?action=show">
+                     <span>
+-                        {l s='Modify or delete items' mod='pg_prestashop_plugin'}
++                        {l s='Modify or delete items' mod='globalpay_payment'}
+                     </span>
+                 </a>
+             </p>
+@@ -55,15 +52,6 @@
+         <div class="col-sm-7 col-lg-9">
+         </div>
+         <div class="col-sm-5 col-lg-3">
+-            {if $enable_installments && $currency!=="COP"}
+-                <select class="btn btn-outline-primary dropdown-toggle btn-block" name="installments_type" id="installments_type">
+-                    <option selected disabled>{l s='Installments Type:' mod='pg_prestashop_plugin'}</option>
+-                    <option value=-1>{l s='Without Installments' mod='pg_prestashop_plugin'}</option>
+-                    {foreach $installments_options as $value => $text}
+-                        <option value={$value}>{$text}</option>
+-                    {/foreach}
+-                </select>
+-            {/if}
+             {if $enable_card}
+                 <button class="btn btn-primary btn-block js-payment-checkout">
+                     <i class="material-icons">done</i>
+@@ -73,7 +61,7 @@
+                 </button>
+             {/if}
+             {if $enable_ltp}
+-                <button class="btn btn-primary btn-block ltp-button" onclick="ltpRedirect()">
++                <button class="btn btn-primary btn-block ltp-button">
+                     <i class="material-icons">done</i>
+                     <span>
+                     {$ltp_button_text}
+@@ -86,148 +74,95 @@
+     <div id="response"></div>
+ 
+     <script id="payment_ltp" type="text/javascript">
+-        function generateAuthToken() {
+-            let timestamp = (new Date()).getTime();
+-            let key_time = "{$app_key_server}" + timestamp;
+-            let uniq_token = CryptoJS.SHA256(key_time);
+-            let str_union = "{$app_code_server}"+";"+timestamp+";"+uniq_token
+-            return btoa(str_union);
+-        }
+-
+-        function ltpRedirect() {
+-            let xhr = new XMLHttpRequest();
+-            xhr.open("POST", "{$ltp_url}", true);
+-            xhr.setRequestHeader('Content-Type', 'application/json');
+-            xhr.setRequestHeader('Auth-token', generateAuthToken());
+-            xhr.send(JSON.stringify({
+-                "user": {
+-                    "id": "{$user_id}",
+-                    "email": "{$user_email}",
+-                    "name": "{$user_firstname}",
+-                    "last_name": "{$user_lastname}"
+-                },
+-                "order": {
+-                    "dev_reference": "{$order_reference}",
+-                    "description": "{$order_description}",
+-                    "amount": Number("{$order_amount}"),
+-                    "installments_type": -1,
+-                    "vat": Number("{$order_vat}"),
+-                    "currency": "{$currency}"
+-                },
+-                "configuration": {
+-                    "partial_payment": false,
+-                    "expiration_days": Number("{$ltp_expiration_days}"),
+-                    "allowed_payment_methods": ["All"],
+-                    "success_url": "{$order_url}",
+-                    "failure_url": "{$order_url}",
+-                    "pending_url": "{$order_url}",
+-                    "review_url": "{$order_url}"
+-                }
+-            }));
+-            xhr.onload = function() {
+-                let data = JSON.parse(this.responseText);
+-                if (!data.hasOwnProperty('success')) {
+-                    showErrorMessage(this.responseText)
+-                } else if (!data['success']) {
+-                    showErrorMessage(data['detail'] ?? this.responseText)
+-                } else {
+-                    redirectPost(data['data']);
+-                }
+-            }
+-        }
+-
+-        function showErrorMessage(message) {
+-            let errorMessage = "{l s='Failed to generate the LinkToPay, gateway response: ' mod='pg_prestashop_plugin'}";
+-            window.alert(errorMessage + JSON.stringify(message));
+-        }
+-
+-        function redirectPost(params) {
+-            params['payment']['payment_method'] = 'LinkToPay';
+-            params['payment']['id'] = params['order']['id'];
+-            params['payment']['amount'] = params['order']['amount'];
+-
+-            const form = document.createElement('form');
+-            form.method = 'post';
+-            for (const key in params) {
+-                if (params.hasOwnProperty(key) && key === 'payment') {
+-                    for (const t_key in params[key]) {
+-                        const hiddenField = document.createElement('input');
+-                        hiddenField.type = 'hidden';
+-                        hiddenField.name = t_key;
+-                        hiddenField.value = params[key][t_key];
+-                        form.appendChild(hiddenField);
+-                    }
+-                }
+-            }
+-
+-            document.body.appendChild(form);
+-            form.submit();
+-        }
++       jQuery(document).ready(function ($) {
++           function setProcessing(state) {
++               window.globalpayPaymentProcessing = state;
++               $('.js-payment-checkout, .ltp-button').prop('disabled', state);
++           }
++
++           $('.ltp-button').on('click', function (e) {
++               e.preventDefault();
++               if (window.globalpayPaymentProcessing) {
++                   return;
++               }
++               setProcessing(true);
++               let xhr = new XMLHttpRequest();
++               xhr.open("POST", "{$ltp_init_url nofilter}", true);
++               xhr.setRequestHeader('Content-Type', 'application/json');
++               xhr.send();
++               xhr.onload = function() {
++                   let data = JSON.parse(this.responseText);
++                   if (data.success) {
++                       window.location.href = data.payment_url;
++                   } else {
++                       let errorMessage = "{l s='Failed to generate the LinkToPay, gateway response: ' mod='globalpay_payment'}";
++                       setProcessing(false);
++                       window.alert(errorMessage + (data.error || ''));
++                   }
++               };
++               xhr.onerror = function() {
++                   setProcessing(false);
++                   window.alert('{l s='Error communicating with LinkToPay gateway.' mod='globalpay_payment'}');
++               };
++           });
++       });
+     </script>
+ 
+     <script id="payment_checkout" type="text/javascript">
+         jQuery(document).ready(function ($) {
++            function setProcessing(state) {
++                window.globalpayPaymentProcessing = state;
++                $('.js-payment-checkout, .ltp-button').prop('disabled', state);
++            }
++
+             let paymentCheckout = new PaymentCheckout.modal({
+-                client_app_code: "{$app_code_client}",
+-                client_app_key: "{$app_key_client}",
+                 locale: "{$checkout_language}",
+                 env_mode: "{$environment}",
+-                onOpen: function () {
+-                    console.log('modal open');
+-                },
++                onOpen: function () {},
+                 onClose: function () {
+-                    console.log('modal closed');
++                    setProcessing(false);
+                 },
+                 onResponse: function (response) {
+-                    console.log('modal response');
+-                    if (response.transaction["status_detail"] === 3 || response.transaction["status_detail"] === 0) {
+-                        showMessageSuccess(response);
++                    if (response.transaction["status_detail"] === 3) {
++                        redirectCardPost(response);
+                     } else {
+-                        showMessageError();
++                        setProcessing(false);
++                        window.alert('{l s='An error occurred while processing your payment and could not be made. Try another Credit Card.' mod='globalpay_payment'}');
+                     }
+                 }
+             });
+ 
+-            let btnOpenCheckout = $('.js-payment-checkout');
+-            let type_installments = -1;
+-            if ("{$currency}" === "COP" && {$enable_installments})
+-                type_installments = 0;
+-
+-            let order_installments_type = document.getElementById('installments_type') ? document.getElementById('installments_type').value : type_installments;
+-
+-            btnOpenCheckout.each(function () {
+-                    $(this).on('click', function () {
++            $('.js-payment-checkout').on('click', function () {
++                if (window.globalpayPaymentProcessing) {
++                    return;
++                }
++                setProcessing(true);
++                let xhr = new XMLHttpRequest();
++                xhr.open("POST", "{$card_init_url nofilter}", true);
++                xhr.setRequestHeader('Content-Type', 'application/json');
++                xhr.send();
++                xhr.onload = function() {
++                    let data = JSON.parse(this.responseText);
++                    if (data.success) {
+                         paymentCheckout.open({
+-                            user_id: "{$user_id}",
+-                            user_email: "{$user_email}", //optional
+-                            order_description: "{$order_description}",
+-                            order_amount: Number("{$order_amount}"),
+-                            order_vat: Number("{$order_vat}"),
+-                            order_reference: "{$order_reference}",
+-                            order_installments_type: Number(order_installments_type),
+-                            billing_address: {
+-                                street: "{$billing_address.street}",
+-                                city: "{$billing_address.city}",
+-                                country: "{$billing_address.country}",
+-                                state:  "{$billing_address.state}",
+-                                zip: "{$billing_address.zip}"
+-                            }
++                            reference: data.reference
+                         });
+-                    })
+-                }
+-            );
++                    } else {
++                        setProcessing(false);
++                        window.alert('{l s='Failed to get checkout reference, please try again.' mod='globalpay_payment'}');
++                    }
++                };
++                xhr.onerror = function() {
++                    setProcessing(false);
++                    window.alert('{l s='Error communicating with payment gateway.' mod='globalpay_payment'}');
++                };
++            });
+ 
+-            // Close Checkout on page navigation:
+             window.addEventListener('popstate', function () {
+                 paymentCheckout.close();
+             });
+ 
+-            function showMessageSuccess(params) {
+-                console.log("success");
+-                redirectPost(params);
+-            }
+-
+-            function redirectPost(params) {
++            function redirectCardPost(params) {
+                 params['transaction']['payment_method'] = 'Card';
+                 const form = document.createElement('form');
+                 form.method = 'post';
+@@ -243,15 +178,14 @@
+                         }
+                     }
+                 }
+-
++                const signatureField = document.createElement('input');
++                signatureField.type = 'hidden';
++                signatureField.name = 'pg_sig';
++                signatureField.value = "{$pg_sig|escape:'html':'UTF-8'}";
++                form.appendChild(signatureField);
+                 document.body.appendChild(form);
+                 form.submit();
+             }
+-
+-            function showMessageError() {
+-                console.error("error");
+-                window.alert('{l s='An error occurred while processing your payment and could not be made. Try another Credit Card.' mod='pg_prestashop_plugin'}');
+-            }
+         });
+     </script>
+ {/block}
+diff --git a/views/templates/front/payment_infos.tpl b/views/templates/front/payment_infos.tpl
+index 9ab80f4..5f8d178 100644
+--- a/views/templates/front/payment_infos.tpl
++++ b/views/templates/front/payment_infos.tpl
+@@ -1,15 +1,13 @@
+-<link rel="stylesheet" href="{$urls.base_url}/modules/pg_prestashop_plugin/views/css/main.css">
+ <section>
+       <div class="col">
+           <div class="payment-checkout">
+-              <img src="{$urls.base_url}/modules/pg_prestashop_plugin/imgs/payment-logo.svg" alt="Payment method"
++              <img src="{$module_dir}imgs/payment-logo.svg" alt="Payment method"
+                   class="payment-checkout-img">
+               <p class="payment-checkout-description">
+               <span>
+-                  {l s='%s is a complete solution for online payments. Safe, easy and fast.' sprintf=[$flavor]  mod='pg_prestashop_plugin'}
++                  {l s='%s is a complete solution for online payments. Safe, easy and fast.' sprintf=[$flavor]  mod='globalpay_payment'}
+               </span>
+               </p>
+           </div>
+       </div>
+ </section>
+-
+diff --git a/views/templates/hook/payment_return.tpl b/views/templates/hook/payment_return.tpl
+index 030edbb..1210afb 100644
+--- a/views/templates/hook/payment_return.tpl
++++ b/views/templates/hook/payment_return.tpl
+@@ -1,10 +1,34 @@
+-<h1>
+-    {l s='Congrats!' mod='pg_prestashop_plugin'}
+-</h1>
+-<br>
++{if $ltp_failed}
++<h3>{l s='Payment failed' mod='globalpay_payment'}</h3>
+ <p>
+-    {l s='You have just completed an order using %s' sprintf=[$module_gtw] mod='pg_prestashop_plugin'}<br/>
++    {l s='Your LinkToPay payment was not completed.' mod='globalpay_payment'}<br/>
++    {l s='Please try again or choose another payment method.' mod='globalpay_payment'}
+ </p>
++{elseif $ltp_pending}
++<h3>{l s='Payment pending' mod='globalpay_payment'}</h3>
+ <p>
+-    {l s='Your payment id is: %s' sprintf=[$payment_id] mod='pg_prestashop_plugin'}<br/>
+-</p>
+\ No newline at end of file
++    {l s='Your LinkToPay payment is pending confirmation.' mod='globalpay_payment'}<br/>
++    {l s='You will receive an email once it is approved.' mod='globalpay_payment'}
++</p>
++{elseif $ltp_review}
++<h3>{l s='Payment under review' mod='globalpay_payment'}</h3>
++<p>
++    {l s='Your LinkToPay payment is under review.' mod='globalpay_payment'}<br/>
++    {l s='We will notify you once it is resolved.' mod='globalpay_payment'}
++</p>
++{elseif $pg_payment_approved}
++<h3>{l s='Payment approved!' mod='globalpay_payment'}</h3>
++<p>
++    {l s='Your payment was approved by %s.' sprintf=[$module_gtw] mod='globalpay_payment'}<br/>
++    {l s='Your order is being confirmed and you will receive an email once it is processed.' mod='globalpay_payment'}
++</p>
++{else}
++<h3>{l s='Order received' mod='globalpay_payment'}</h3>
++<p>
++    {l s='Your order has been received and payment is being verified.' mod='globalpay_payment'}<br/>
++    {l s='You will receive a confirmation email once your payment is processed.' mod='globalpay_payment'}
++</p>
++{/if}
++{if $payment_id}
++<p>{l s='Payment reference: %s' sprintf=[$payment_id] mod='globalpay_payment'}</p>
++{/if}
+\ No newline at end of file

@@ -15,6 +15,12 @@
 .payment-checkout-description span {
   background-color: #ffffffc9;
 }
+
+.payment-checkout .payment-checkout-img {
+  width: 80% !important;
+  height: auto;
+  display: block;
+}
 @media (max-width: 575px) {
   .payment-checkout {
     background: linear-gradient(rgb(255 255 255), rgb(255 255 255 / 65%)),
@@ -46,7 +52,10 @@
   letter-spacing: 2px;
   font-weight: 500;
   cursor: pointer;
-  float: left;
+  float: none;
+  display: block;
+  width: 100%;
+  margin-bottom: 1em;
 }
 
 .ltp-button {
@@ -56,5 +65,9 @@
   letter-spacing: 2px;
   font-weight: 500;
   cursor: pointer;
-  float: left;
+  float: none;
+  display: block;
+  width: 100%;
+  margin-top: 1em;
+  margin-bottom: 1em;
 }

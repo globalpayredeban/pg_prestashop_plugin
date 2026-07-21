@@ -1,6 +1,9 @@
 <?php
-class PG_Prestashop_Utils
+class Globalpay_PaymentUtils
 {
+    private const PAYMENT_FLOW_CARD = 'card';
+    private const PAYMENT_FLOW_LTP = 'ltp';
+
     /**
      * Method to validate two-letter state codes.
      *
@@ -277,5 +280,145 @@ class PG_Prestashop_Utils
 
         );
         return isset($countries[$country]) ? $countries[$country] : $country;
+    }
+
+    public static function markOrderPaymentFlow(Order $order, string $flow): void
+    {
+        $marker = self::paymentFlowMarker($flow);
+        if ($marker === '') {
+            return;
+        }
+
+        $collection = OrderPayment::getByOrderReference($order->reference);
+        foreach ($collection as $order_payment) {
+            if ($order_payment->payment_method == GP_FLAVOR . ' Prestashop Plugin' || !$order_payment->payment_method) {
+                $order_payment->card_brand = $marker;
+                $order_payment->save();
+            }
+        }
+    }
+
+    public static function isCardRefundableOrder(Order $order): bool
+    {
+        $collection = OrderPayment::getByOrderReference($order->reference);
+        $hasGlobalpayPayment = false;
+        foreach ($collection as $order_payment) {
+            if ($order_payment->payment_method != GP_FLAVOR . ' Prestashop Plugin' && $order_payment->payment_method) {
+                continue;
+            }
+            $hasGlobalpayPayment = true;
+
+            if ($order_payment->card_brand === self::paymentFlowMarker(self::PAYMENT_FLOW_CARD)) {
+                return true;
+            }
+
+            if ($order_payment->card_brand === self::paymentFlowMarker(self::PAYMENT_FLOW_LTP)) {
+                return false;
+            }
+        }
+
+        // Backward compatibility with existing orders created before flow markers.
+        return $hasGlobalpayPayment;
+    }
+
+    public static function isLinkToPayOrder(Order $order): bool
+    {
+        $collection = OrderPayment::getByOrderReference($order->reference);
+        foreach ($collection as $order_payment) {
+            if ($order_payment->payment_method != GP_FLAVOR . ' Prestashop Plugin' && $order_payment->payment_method) {
+                continue;
+            }
+
+            if ($order_payment->card_brand === self::paymentFlowMarker(self::PAYMENT_FLOW_LTP)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function paymentFlowMarker(string $flow): string
+    {
+        if ($flow === self::PAYMENT_FLOW_CARD) {
+            return 'Globalpay Card';
+        }
+
+        if ($flow === self::PAYMENT_FLOW_LTP) {
+            return 'Globalpay LinkToPay';
+        }
+
+        return '';
+    }
+
+    public static function buildFrontSecuritySignature(Cart $cart, Customer $customer): string
+    {
+        $secureKey = (string) $customer->secure_key;
+        return hash(
+            'sha256',
+            (string) $cart->id . '|' . (string) $customer->id . '|' . $secureKey . '|' . _COOKIE_KEY_
+        );
+    }
+
+    public static function isValidFrontSecuritySignature(string $signature, Cart $cart, Customer $customer): bool
+    {
+        if ($signature === '') {
+            return false;
+        }
+
+        $expected = self::buildFrontSecuritySignature($cart, $customer);
+        return hash_equals($expected, $signature);
+    }
+
+    public static function getCartAmountAndVat(Cart $cart): array
+    {
+        $totalWithTax = (float) $cart->getOrderTotal(true, Cart::BOTH);
+        $totalWithoutTax = (float) $cart->getOrderTotal(false, Cart::BOTH);
+        $vat = round($totalWithTax - $totalWithoutTax, 2);
+
+        if ($vat <= 0) {
+            $summary = $cart->getSummaryDetails();
+            $summaryVat = (float) ($summary['total_tax'] ?? 0);
+            if ($summaryVat > 0) {
+                $vat = round($summaryVat, 2);
+            }
+        }
+
+        if ($vat <= 0) {
+            $productsVat = 0.0;
+            $products = $cart->getProducts();
+            foreach ($products as $product) {
+                $lineWithTax = 0.0;
+                $lineWithoutTax = 0.0;
+
+                if (isset($product['total_wt'], $product['total'])) {
+                    $lineWithTax = (float) $product['total_wt'];
+                    $lineWithoutTax = (float) $product['total'];
+                } elseif (isset($product['price_wt'], $product['price'], $product['cart_quantity'])) {
+                    $quantity = (float) $product['cart_quantity'];
+                    $lineWithTax = (float) $product['price_wt'] * $quantity;
+                    $lineWithoutTax = (float) $product['price'] * $quantity;
+                }
+
+                $productsVat += max(0.0, $lineWithTax - $lineWithoutTax);
+            }
+
+            $shippingWithTax = (float) $cart->getOrderTotal(true, Cart::ONLY_SHIPPING);
+            $shippingWithoutTax = (float) $cart->getOrderTotal(false, Cart::ONLY_SHIPPING);
+            $shippingVat = max(0.0, $shippingWithTax - $shippingWithoutTax);
+
+            $fallbackVat = round($productsVat + $shippingVat, 2);
+            if ($fallbackVat > 0) {
+                $vat = $fallbackVat;
+            }
+        }
+
+        if ($vat < 0) {
+            $vat = 0.0;
+        }
+
+        return [
+            'total' => $totalWithTax,
+            'vat' => $vat,
+        ];
     }
 }
